@@ -24,6 +24,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -d, --debug        debug mode (show full command)
     -x, --trace        trace mode (set -x)
     -q, --quiet        quiet mode
+    -n, --dryrun       dry-run mode (do not run docker)
 
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image (DOZO_DEFAULT_IMAGE or tecolicom/xlate)
@@ -215,6 +216,7 @@ declare -A OPTS=(
     [      debug | d   # debug mode (show full command)  ]=
     [      trace | x   # trace mode (set -x)             ]=
     [      quiet | q   # quiet mode                      ]=
+    [     dryrun | n   # dry-run mode (do not run docker)]=
     [      image | I : # Docker image                    ]=
     [    default | D ! # use default image               ]=
     [        env | E @ # environment variable to inherit ]=
@@ -387,7 +389,11 @@ if [[ ! ${quiet:-} ]]; then
     warn "docker run ${info}"
 fi
 
-exec docker run "${dockopt[@]}" "${image}" "$@"
+cmd=(docker run "${dockopt[@]}" "${image}" "$@")
+[[ ${dryrun:-} ]] && cmd=(echo "${cmd[@]}")
+exec "${cmd[@]}"
+
+exit 1
 
 : <<'=cut'
 
