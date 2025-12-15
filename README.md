@@ -150,6 +150,11 @@ for option parsing.
 
     Quiet mode.
 
+- **-n**, **--dryrun**
+
+    Dry-run mode. Show docker commands without executing them.
+    Useful for testing and debugging.
+
 - **-I** _image_, **--image**=_image_
 
     Specify Docker image. Required unless `-D` is given, but you can put

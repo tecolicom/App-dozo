@@ -161,6 +161,11 @@ Enable trace mode (set -x).
 
 Quiet mode.
 
+=item B<-n>, B<--dryrun>
+
+Dry-run mode. Show docker commands without executing them.
+Useful for testing and debugging.
+
 =item B<-I> I<image>, B<--image>=I<image>
 
 Specify Docker image. Required unless C<-D> is given, but you can put
