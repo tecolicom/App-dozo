@@ -1,6 +1,6 @@
 package App::dozo;
 
-our $VERSION = "0.9922";
+our $VERSION = "0.9923";
 
 1;
 =encoding utf-8
@@ -37,7 +37,7 @@ dozo -I IMAGE [ options ] [ command ... ]
 
 =head1 VERSION
 
-Version 0.9922
+Version 
 
 =head1 USAGE
 

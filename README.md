@@ -1,4 +1,4 @@
-
+[![Actions Status](https://github.com/tecolicom/App-dozo/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/tecolicom/App-dozo/actions?workflow=test) [![MetaCPAN Release](https://badge.fury.io/pl/App-dozo.svg)](https://metacpan.org/release/App-dozo)
 # NAME
 
 dozo - Docker with Zero Overhead
@@ -31,7 +31,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
 
 # VERSION
 
-Version 0.9922
+Version 
 
 # USAGE
 

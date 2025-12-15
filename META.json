@@ -53,7 +53,18 @@
       }
    },
    "release_status" : "unstable",
-   "version" : "0.9922",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/tecolicom/App-dozo/issues"
+      },
+      "homepage" : "https://github.com/tecolicom/App-dozo",
+      "repository" : {
+         "type" : "git",
+         "url" : "https://github.com/tecolicom/App-dozo.git",
+         "web" : "https://github.com/tecolicom/App-dozo"
+      }
+   },
+   "version" : "0.9923",
    "x_contributors" : [
       "Kazumasa Utashiro <kaz@utashiro.com>"
    ],
