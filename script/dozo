@@ -211,6 +211,35 @@ if [[ $top_dir && $top_dir != $cwd ]]; then
     mount_dir="$top_dir"
 fi
 
+##############################################################################
+# Read .dozorc
+##############################################################################
+
+# Collect .dozorc paths in reverse priority order (lowest first)
+declare -a rcpath=()
+[[ $HOME != $cwd ]] && rcpath+=("$HOME")
+[[ $top_dir && $top_dir != $cwd ]] && rcpath+=("$top_dir")
+rcpath+=(.)
+
+# Collect options from .dozorc files
+declare -a rc_opts=()
+for dir in "${rcpath[@]}"; do
+    rc="$dir/.dozorc"
+    [[ -r $rc ]] || continue
+    warn "reading $rc"
+    while IFS= read -r line; do
+        [[ $line =~ ^# ]] && continue
+        [[ $line ]] || continue
+        while IFS= read -r -d '' arg; do
+            rc_opts+=("$arg")
+        done < <(xargs printf '%s\0' <<< "$line")
+    done < "$rc"
+done
+
+##############################################################################
+# Option definitions
+##############################################################################
+
 define USAGE <<END
 $myname - Generic Docker Runner
 
@@ -243,31 +272,6 @@ declare -A OPTS=(
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
 )
-
-##############################################################################
-# Read .dozorc
-##############################################################################
-
-# Collect .dozorc paths in reverse priority order (lowest first)
-declare -a rcpath=()
-[[ $HOME != $cwd ]] && rcpath+=("$HOME")
-[[ $top_dir && $top_dir != $cwd ]] && rcpath+=("$top_dir")
-rcpath+=(.)
-
-# Collect options from .dozorc files
-declare -a rc_opts=()
-for dir in "${rcpath[@]}"; do
-    rc="$dir/.dozorc"
-    [[ -r $rc ]] || continue
-    warn "reading $rc"
-    while IFS= read -r line; do
-        [[ $line =~ ^# ]] && continue
-        [[ $line ]] || continue
-        while IFS= read -r -d '' arg; do
-            rc_opts+=("$arg")
-        done < <(xargs printf '%s\0' <<< "$line")
-    done < "$rc"
-done
 
 ##############################################################################
 # Parse options
