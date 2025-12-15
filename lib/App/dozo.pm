@@ -18,6 +18,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -d, --debug        debug mode (show full command)
     -x, --trace        trace mode (set -x)
     -q, --quiet        quiet mode
+    -n, --dryrun       dry-run mode (do not run docker)
 
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image (DOZO_DEFAULT_IMAGE or tecolicom/xlate)
@@ -37,7 +38,7 @@ dozo -I IMAGE [ options ] [ command ... ]
 
 =head1 VERSION
 
-Version 
+Version 0.9923
 
 =head1 USAGE
 
