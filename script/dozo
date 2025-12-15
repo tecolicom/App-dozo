@@ -71,9 +71,9 @@ installed in the container will remain available for subsequent use.
     $ dozo -L                       # start shell and create container
     # apt update && apt install -y cowsay
     # exit
-    $ dozo -L /usr/games/cowsay Hello
+    $ dozo -L /usr/games/cowsay do-zo
      _______
-    < Hello >
+    < do-zo >
      -------
             \   ^__^
              \  (oo)\_______
@@ -101,6 +101,9 @@ version() {
     echo "$my_version"
     exit 0
 }
+
+# -x callback: trace mode
+trace() { [[ $2 ]] && set -x || set +x; }
 
 ##############################################################################
 # Utility functions
@@ -253,7 +256,7 @@ declare -A OPTS=(
     [       help | h ! # show help                       ]=
     [    version     ! # show version                    ]=
     [      debug | d   # debug mode (show full command)  ]=
-    [      trace | x   # trace mode (set -x)             ]=
+    [      trace | x ! # trace mode (set -x)             ]=
     [      quiet | q   # quiet mode                      ]=
     [     dryrun | n   # dry-run mode (do not run docker)]=
     [      image | I : # Docker image                    ]=
@@ -282,12 +285,6 @@ declare -A OPTS=(
 # Flush buffered warnings
 warn() { [[ ${quiet:-} ]] || echo "$myname: $*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
-
-# Version display
-[[ ${version:-} ]] && { echo "$my_version"; exit 0; }
-
-# Trace mode
-[[ ${trace:-} ]] && set -x
 
 # Apply options
 [[ ${mount_cwd:-} ]] && mount_dir="$cwd"

@@ -61,9 +61,9 @@ installed in the container will remain available for subsequent use.
     $ dozo -L                       # start shell and create container
     # apt update && apt install -y cowsay
     # exit
-    $ dozo -L /usr/games/cowsay Hello
+    $ dozo -L /usr/games/cowsay do-zo
      _______
-    < Hello >
+    < do-zo >
      -------
             \   ^__^
              \  (oo)\_______
