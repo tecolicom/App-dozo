@@ -71,6 +71,19 @@ installed in the container will remain available for subsequent use.
                     ||----w |
                     ||     ||
 
+# INSTALLATION
+
+Using [cpanminus](https://metacpan.org/pod/App::cpanminus):
+
+    cpanm -n App::dozo
+
+To install the latest version from GitHub:
+
+    cpanm -n https://github.com/tecolicom/App-dozo.git
+
+Alternatively, you can simply place `dozo` and `getoptlong.sh` in
+your PATH.
+
 # DESCRIPTION
 
 **dozo** is a generic Docker runner that simplifies running commands in

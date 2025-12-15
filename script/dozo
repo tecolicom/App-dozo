@@ -416,6 +416,19 @@ exit
 
 : <<'=cut'
 
+=head1 INSTALLATION
+
+Using L<cpanminus|https://metacpan.org/pod/App::cpanminus>:
+
+    cpanm -n App::dozo
+
+To install the latest version from GitHub:
+
+    cpanm -n https://github.com/tecolicom/App-dozo.git
+
+Alternatively, you can simply place C<dozo> and C<getoptlong.sh> in
+your PATH.
+
 =head1 DESCRIPTION
 
 B<dozo> is a generic Docker runner that simplifies running commands in
