@@ -5,6 +5,8 @@ our $VERSION = "0.9923";
 1;
 =encoding utf-8
 
+=for html <p align="center"><img src="https://raw.githubusercontent.com/tecolicom/App-dozo/main/images/dozo-logo.jpeg" width="400"></p>
+
 =head1 NAME
 
 dozo - Docker with Zero Overhead
