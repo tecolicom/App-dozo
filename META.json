@@ -42,6 +42,7 @@
       },
       "runtime" : {
          "requires" : {
+            "File::Share" : "0",
             "perl" : "5.024"
          }
       },

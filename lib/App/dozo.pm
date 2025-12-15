@@ -84,9 +84,9 @@ It automatically configures the tedious Docker options such as volume
 mounts, environment variables, working directories, and interactive
 terminal settings, so you can focus on the command you want to run.
 
-B<dozo> is installed as part of L<App::Greple::xlate> and is used by
-L<xlate> for Docker operations, but it can also be used independently
-as a general-purpose Docker runner.
+B<dozo> is distributed as a standalone module and can be used as a
+general-purpose Docker runner. It was originally developed as part of
+L<App::Greple::xlate> and is used by L<xlate> for Docker operations.
 
 B<dozo> uses L<getoptlong.sh|https://github.com/tecolicom/getoptlong>
 for option parsing.
@@ -130,11 +130,11 @@ git top directory, and home directory.
 
 =item B<Standalone Operation>
 
-B<dozo> can operate independently of L<xlate>. If the
-L<App::Greple::xlate> module is installed, B<dozo> uses
-C<getoptlong.sh> bundled with the module. Otherwise, it searches for
-C<getoptlong.sh> in the standard C<PATH>. This allows B<dozo> to be
-used as a general-purpose Docker runner even without the xlate module.
+B<dozo> can operate independently of L<xlate>. The distribution includes
+C<getoptlong.sh> as a submodule in the C<share/getoptlong> directory.
+If the module is installed via CPAN, it searches for C<getoptlong.sh>
+via C<File::Share::dist_dir('App-dozo')>. Otherwise, it searches for
+C<getoptlong.sh> in the standard C<PATH>.
 
 =back
 

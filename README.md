@@ -77,9 +77,9 @@ It automatically configures the tedious Docker options such as volume
 mounts, environment variables, working directories, and interactive
 terminal settings, so you can focus on the command you want to run.
 
-**dozo** is installed as part of [App::Greple::xlate](https://metacpan.org/pod/App%3A%3AGreple%3A%3Axlate) and is used by
-[xlate](https://metacpan.org/pod/xlate) for Docker operations, but it can also be used independently
-as a general-purpose Docker runner.
+**dozo** is distributed as a standalone module and can be used as a
+general-purpose Docker runner. It was originally developed as part of
+[App::Greple::xlate](https://metacpan.org/pod/App%3A%3AGreple%3A%3Axlate) and is used by [xlate](https://metacpan.org/pod/xlate) for Docker operations.
 
 **dozo** uses [getoptlong.sh](https://github.com/tecolicom/getoptlong)
 for option parsing.
@@ -121,11 +121,11 @@ for option parsing.
 
 - **Standalone Operation**
 
-    **dozo** can operate independently of [xlate](https://metacpan.org/pod/xlate). If the
-    [App::Greple::xlate](https://metacpan.org/pod/App%3A%3AGreple%3A%3Axlate) module is installed, **dozo** uses
-    `getoptlong.sh` bundled with the module. Otherwise, it searches for
-    `getoptlong.sh` in the standard `PATH`. This allows **dozo** to be
-    used as a general-purpose Docker runner even without the xlate module.
+    **dozo** can operate independently of [xlate](https://metacpan.org/pod/xlate). The distribution includes
+    `getoptlong.sh` as a submodule in the `share/getoptlong` directory.
+    If the module is installed via CPAN, it searches for `getoptlong.sh`
+    via `File::Share::dist_dir('App-dozo')`. Otherwise, it searches for
+    `getoptlong.sh` in the standard `PATH`.
 
 # OPTIONS
 
