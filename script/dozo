@@ -167,7 +167,7 @@ docker_status() {
 dist_dir() {
     perl -MFile::Share=:all -E "say dist_dir '$1'" 2>/dev/null || true
 }
-share=$(dist_dir App-Greple-xlate)
+share=$(dist_dir App-dozo)
 PATH="${share:+$share:$share/getoptlong:}$PATH"
 
 # Default environment variables to inherit
@@ -185,7 +185,7 @@ DEFAULT_ENV=(
 # Initialize variables
 top_dir=$(git_topdir) || top_dir=
 cwd=$(pwd)
-default_image=tecolicom/xlate:$my_version
+default_image=tecolicom/xlate
 hostname=
 workdir=/work
 localtime=/etc/localtime
