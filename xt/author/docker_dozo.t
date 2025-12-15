@@ -3,11 +3,6 @@ use warnings;
 use utf8;
 
 use Test::More;
-
-BEGIN {
-    plan skip_all => 'Author testing' unless $ENV{AUTHOR_TESTING};
-}
-
 use File::Spec;
 use File::Temp qw(tempdir);
 
