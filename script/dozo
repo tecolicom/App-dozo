@@ -113,7 +113,7 @@ _warn_buffer=()
 warn() { _warn_buffer+=("$*"); }
 
 debug() {
-    [[ ${debug:-} ]] && echo "$myname: $*" >&2 || true
+    [[ ${debug:-} ]] && echo "debug: $*" >&2 || true
 }
 
 die() {
@@ -143,7 +143,8 @@ container_name() {
         then name=${BASH_REMATCH[2]}
         else name=$myname
         fi
-        [[ ${mount_dir:-} ]] && name+=.${mount_dir##*/}
+        local dir="${mount_dir:-$cwd}"
+        [[ $dir ]] && name+=.${dir##*/}
     fi
     echo "$name"
 }
@@ -166,6 +167,7 @@ docker_status() {
 }
 
 docker() {
+    debug "docker $*"
     if [[ ${dryrun:-} ]]; then
         echo docker "$@"
         return 0
@@ -283,7 +285,7 @@ declare -A OPTS=(
 . getoptlong.sh OPTS "${rc_opts[@]}" "$@" || die "getoptlong.sh not found"
 
 # Flush buffered warnings
-warn() { [[ ${quiet:-} ]] || echo "$myname: $*" >&2; }
+warn() { [[ ${quiet:-} ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
 # Apply options
@@ -313,20 +315,18 @@ fi
 
 if [[ ${live:-} ]]; then
     container=$(container_name)
-    debug "live: container=$container"
     if id=$(docker_find "$container"); then
         status=$(docker_status $id)
-        debug "live: id=$id status=$status"
         case $status in
             exited)
-                warn "start the $container ($id)"
-                docker start $id || exit 1
-                [[ ${dryrun:-} ]] && status=running && debug "live: fake status=running"
+                warn "restarting exited container $container ($id)"
+                docker start $id > /dev/null || exit 1
+                [[ ${dryrun:-} ]] && status=running && debug "fake status=running"
                 ;;
             paused)
-                warn "unpause the $container ($id)"
+                warn "unpausing container $container ($id)"
                 docker unpause $id || exit 1
-                [[ ${dryrun:-} ]] && status=running && debug "live: fake status=running"
+                [[ ${dryrun:-} ]] && status=running && debug "fake status=running"
                 ;;
             running)
                 ;;
@@ -335,10 +335,9 @@ if [[ ${live:-} ]]; then
                 ;;
         esac
     else
-        debug "live: container not found"
+        debug "container not found"
     fi
     if [[ ${status:-} == running ]] || id=$(docker_find -s running "$container"); then
-        debug "live: exec/attach id=$id"
         if (( $# > 0 )); then
             declare -a exec_opts
             [[ ! ${batch:-} ]] && exec_opts+=(--interactive)
@@ -346,7 +345,7 @@ if [[ ${live:-} ]]; then
             export DOCKER_CLI_HINTS=false
             docker exec "${exec_opts[@]}" $id "$@"
         else
-            warn "attach to the $container ($id)"
+            warn "attaching to container $container ($id)"
             docker attach $id
         fi
         exit
@@ -400,7 +399,6 @@ dockopt+=(
 )
 
 # Display docker run info
-debug "docker run ${dockopt[*]} ${image} $*"
 if [[ ! ${quiet:-} ]]; then
     info="image=${image} env=${#ENV[@]}"
     [[ ${live:-} && ${container:-} ]] && info+=" container=${container}"
