@@ -36,7 +36,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
 
 # VERSION
 
-Version 0.9925
+Version 0.9926
 
 # USAGE
 
