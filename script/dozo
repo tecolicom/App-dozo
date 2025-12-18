@@ -179,12 +179,17 @@ docker() {
 # Main
 ##############################################################################
 
-# Set PATH for getoptlong.sh
+# Find getoptlong.sh
 dist_dir() {
     perl -MFile::Share=:all -E "say dist_dir '$1'" 2>/dev/null || true
 }
 share=$(dist_dir App-dozo)
 PATH="${share:+$share:$share/getoptlong:}$PATH"
+getoptlong=$(command -v getoptlong.sh) || {
+    basedir="$(cd "$(dirname "$0")/.." && pwd)"
+    [[ -f $basedir/share/getoptlong/getoptlong.sh ]] &&
+        getoptlong="$basedir/share/getoptlong/getoptlong.sh"
+}
 
 # Default environment variables to inherit
 DEFAULT_ENV=(
@@ -282,7 +287,8 @@ declare -A OPTS=(
 # Parse options
 ##############################################################################
 
-. getoptlong.sh OPTS "${rc_opts[@]}" "$@" || die "getoptlong.sh not found"
+[[ $getoptlong ]] || die "getoptlong.sh not found"
+. "$getoptlong" OPTS "${rc_opts[@]}" "$@"
 
 # Flush buffered warnings
 warn() { [[ ${quiet:-} ]] || echo "$*" >&2; }
