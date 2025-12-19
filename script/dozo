@@ -434,6 +434,8 @@ To install the latest version from GitHub:
 Alternatively, you can simply place C<dozo> and C<getoptlong.sh> in
 your PATH.
 
+B<Dôzo> requires Bash 4.3 or later.
+
 =head1 DESCRIPTION
 
 B<Dôzo> is a generic Docker runner that simplifies running commands in
