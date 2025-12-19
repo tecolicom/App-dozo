@@ -2,3 +2,4 @@
 	path = share/getoptlong
 	url = https://github.com/tecolicom/getoptlong
 	branch = dist
+	shallow = true
