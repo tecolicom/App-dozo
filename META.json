@@ -42,7 +42,7 @@
       },
       "runtime" : {
          "requires" : {
-            "File::Share" : "0",
+            "Getopt::Long::Bash" : "v0.6.0",
             "perl" : "5.024"
          }
       },
