@@ -386,7 +386,10 @@ for v in "${volume[@]}"; do
     [[ $v == *:* ]] || v="$v:$v"
     dockopt+=(-v "$v")
 done
-for p in "${port[@]}"; do dockopt+=(-p "$p"); done
+for p in "${port[@]}"; do
+    [[ $p == *:* ]] || p="$p:$p"
+    dockopt+=(-p "$p")
+done
 for e in  "${ENV[@]}"; do dockopt+=(-e "$e"); done
 
 dockopt+=(
@@ -573,9 +576,11 @@ Kill and remove existing container.
 
 Use live (persistent) container.
 
-=item B<-P> I<port>, B<--port>=I<port>
+=item B<-P> I<port>, B<-P> I<host>:I<container>, B<--port>=I<host>:I<container>
 
-Specify port mapping (e.g., C<8080:80>). Repeatable.
+Specify port mapping. If only I<port> is given (without C<:>), it is
+mapped to the same port in the container (e.g., C<-P 8000> becomes
+C<8000:8000>). Repeatable.
 
 =item B<-O> I<option>, B<--other>=I<option>
 
