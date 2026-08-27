@@ -137,8 +137,9 @@ for option parsing.
 
 - **X11 Support**
 
-    When `DISPLAY` is set, the host IP is automatically detected and
-    passed to the container, enabling GUI applications.
+    When `DISPLAY` is set, the address of the interface used for the
+    default route is detected and passed to the container as `DISPLAY`,
+    enabling GUI applications.
 
 - **Configuration File**
 

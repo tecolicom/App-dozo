@@ -133,8 +133,16 @@ git_topdir() {
     echo "$dir"
 }
 
+# Address of the interface used for the default route
 get_ip() {
-    local ip=$(ifconfig 2>/dev/null | awk '/inet /{print $2}' | tail -1)
+    local ip= dev=
+    if command -v ip > /dev/null 2>&1; then
+        ip=$(ip -4 route get 1.1.1.1 2>/dev/null |
+                 sed -n 's/.* src \([0-9.]*\).*/\1/p')
+    elif command -v ipconfig > /dev/null 2>&1; then
+        dev=$(route -n get default 2>/dev/null | sed -n 's/.*interface: *//p')
+        [[ $dev ]] && { ip=$(ipconfig getifaddr "$dev" 2>/dev/null) || ip= ; }
+    fi
     echo "$ip"
 }
 
@@ -492,8 +500,9 @@ read-only mode (C<-R>), or no mount (C<-U>).
 
 =item B<X11 Support>
 
-When C<DISPLAY> is set, the host IP is automatically detected and
-passed to the container, enabling GUI applications.
+When C<DISPLAY> is set, the address of the interface used for the
+default route is detected and passed to the container as C<DISPLAY>,
+enabling GUI applications.
 
 =item B<Configuration File>
 
