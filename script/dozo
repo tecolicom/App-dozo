@@ -210,7 +210,7 @@ relative=
 display=
 
 # Set default volume based on git directory
-if [[ $top_dir && $top_dir != $cwd ]]; then
+if [[ $top_dir && $top_dir != "$cwd" ]]; then
     mount_dir="$top_dir"
 fi
 
@@ -220,8 +220,8 @@ fi
 
 # Collect .dozorc paths in reverse priority order (lowest first)
 declare -a rcpath=()
-[[ $HOME != $cwd ]] && rcpath+=("$HOME")
-[[ $top_dir && $top_dir != $cwd ]] && rcpath+=("$top_dir")
+[[ $HOME != "$cwd" ]] && rcpath+=("$HOME")
+[[ $top_dir && $top_dir != "$cwd" && $top_dir != "$HOME" ]] && rcpath+=("$top_dir")
 rcpath+=(.)
 
 # Collect options from .dozorc files
@@ -230,7 +230,7 @@ for dir in "${rcpath[@]}"; do
     rc="$dir/.dozorc"
     [[ -r $rc ]] || continue
     warn "reading $rc"
-    while IFS= read -r line; do
+    while IFS= read -r line || [[ $line ]]; do
         [[ $line =~ ^# ]] && continue
         [[ $line ]] || continue
         while IFS= read -r -d '' arg; do
@@ -295,6 +295,13 @@ given_name="${name:-}"
 # Merge environment variables
 ENV=("${DEFAULT_ENV[@]}" "${env[@]}")
 
+# Determine working directory in the container
+if [[ ! ${unmount:-} && $mount_dir && $mount_dir != "$cwd" ]]; then
+    mounting=1
+    [[ ${cwd#"$mount_dir"/} != "$cwd" ]] && relative="${cwd#"$mount_dir"/}"
+fi
+container_workdir="${workdir}${relative:+/${relative}}"
+
 ##############################################################################
 # Kill container
 ##############################################################################
@@ -316,8 +323,10 @@ if [[ ${live:-} ]]; then
     if id=$(docker_find "$container"); then
         status=$(docker_status $id)
         case $status in
-            exited)
-                warn "restarting exited container $container ($id)"
+            created|exited)
+                action=starting
+                [[ $status == exited ]] && action=restarting
+                warn "$action $status container $container ($id)"
                 docker start $id > /dev/null || exit 1
                 [[ ${dryrun:-} ]] && status=running && debug "fake status=running"
                 ;;
@@ -337,9 +346,11 @@ if [[ ${live:-} ]]; then
     fi
     if [[ ${status:-} == running ]] || id=$(docker_find -s running "$container"); then
         if (( $# > 0 )); then
-            declare -a exec_opts
+            declare -a exec_opts=()
             [[ ! ${batch:-} ]] && exec_opts+=(--interactive)
             [[ ! ${batch:-} ]] && [[ -t 0 ]] && exec_opts+=(--tty)
+            [[ ! ${unmount:-} && ${relative:-} ]] && exec_opts+=(--workdir "$container_workdir")
+            for e in "${ENV[@]}"; do exec_opts+=(-e "$e"); done
             export DOCKER_CLI_HINTS=false
             docker exec "${exec_opts[@]}" $id "$@"
         else
@@ -357,10 +368,7 @@ fi
 
 [[ $image ]] || die "Docker image must be specified with -I option"
 
-if [[ ! ${unmount:-} && $mount_dir && $mount_dir != $cwd ]]; then
-    warn "mount $mount_dir to $workdir"
-    [[ ${cwd#$mount_dir/} != $cwd ]] && relative="${cwd#$mount_dir/}"
-fi
+[[ ${mounting:-} ]] && warn "mount $mount_dir to $workdir"
 
 if [[ ${DISPLAY:-} ]]; then
     ip=$(get_ip)
@@ -380,7 +388,7 @@ declare -a dockopt=(
 [[ -e $localtime  ]] && dockopt+=(-v $localtime:$localtime:ro)
 [[ ! ${unmount:-} ]] && dockopt+=(
         -v "${mount_dir:-$cwd}:${workdir}:${mount_mode}"
-        -w "${workdir}${relative:+/${relative}}"
+        -w "$container_workdir"
     )
 for v in "${volume[@]}"; do
     [[ $v == *:* ]] || v="$v:$v"
@@ -647,9 +655,10 @@ attach to the container using C<docker attach>.
 
 Unpause the container with C<docker unpause>, then proceed as above.
 
-=item 4. B<Container exists but is exited>
+=item 4. B<Container exists but is not started>
 
-Start the container with C<docker start>, then proceed as above.
+If the container is in the C<created> or C<exited> state, start it
+with C<docker start>, then proceed as above.
 
 =back
 
@@ -685,6 +694,9 @@ If no command is given, attaches to the container's main process.
     dozo -I myimage -L ls -la
 
 Runs the command in the existing container using C<docker exec>.
+Environment variables are passed just as for a new container, and when
+the current directory is under the mounted directory, the
+corresponding subdirectory is used as the working directory.
 
 =item B<Kill and recreate container>
 

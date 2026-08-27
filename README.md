@@ -296,9 +296,10 @@ When `-L` is specified, **Dôzo** behaves as follows:
 
     Unpause the container with `docker unpause`, then proceed as above.
 
-- 4. **Container exists but is exited**
+- 4. **Container exists but is not started**
 
-    Start the container with `docker start`, then proceed as above.
+    If the container is in the `created` or `exited` state, start it
+    with `docker start`, then proceed as above.
 
 ## Container Naming
 
@@ -330,6 +331,9 @@ You can override the auto-generated name using the `-N` option:
         dozo -I myimage -L ls -la
 
     Runs the command in the existing container using `docker exec`.
+    Environment variables are passed just as for a new container, and when
+    the current directory is under the mounted directory, the
+    corresponding subdirectory is used as the working directory.
 
 - **Kill and recreate container**
 
