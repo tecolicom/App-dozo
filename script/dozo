@@ -508,6 +508,14 @@ C<getoptlong.sh> in your C<PATH> manually.
 
 =head1 OPTIONS
 
+Repeatable options (B<-E>, B<-V>, B<-P> and B<-O>) can be given more
+than once, and a single value is also split into multiple elements at
+spaces, tabs and commas.  Thus C<-P 8000,9000> gives two port mappings,
+and B<-O> with the value C<--memory 2g> gives two docker options.  As a
+consequence, a value containing a space cannot be given as a single
+element: B<-E> with the value C<MSG=hello world> defines two variables,
+C<MSG=hello> and C<world>.
+
 =over 7
 
 =item B<-h>, B<--help>
@@ -614,9 +622,6 @@ C<8000:8000>). Repeatable.
 =item B<-O> I<option>, B<--other>=I<option>
 
 Specify additional docker options. Repeatable.
-
-Note: Spaces and commas in option values are treated as delimiters and
-will split the value into multiple elements.
 
 =back
 

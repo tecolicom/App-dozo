@@ -155,6 +155,14 @@ for option parsing.
 
 # OPTIONS
 
+Repeatable options (**-E**, **-V**, **-P** and **-O**) can be given more
+than once, and a single value is also split into multiple elements at
+spaces, tabs and commas.  Thus `-P 8000,9000` gives two port mappings,
+and **-O** with the value `--memory 2g` gives two docker options.  As a
+consequence, a value containing a space cannot be given as a single
+element: **-E** with the value `MSG=hello world` defines two variables,
+`MSG=hello` and `world`.
+
 - **-h**, **--help**
 
     Show help message.
@@ -259,9 +267,6 @@ for option parsing.
 - **-O** _option_, **--other**=_option_
 
     Specify additional docker options. Repeatable.
-
-    Note: Spaces and commas in option values are treated as delimiters and
-    will split the value into multiple elements.
 
 # INTERACTIVE MODE
 
