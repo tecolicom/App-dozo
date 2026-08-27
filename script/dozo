@@ -121,9 +121,9 @@ die() {
     exit 1
 }
 
-# Check bash version (4.3+ required for getoptlong.sh)
-if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
-    die "bash 4.3+ required (found $BASH_VERSION)"
+# Check bash version (4.4+ required for getoptlong.sh)
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    die "bash 4.4+ required (found $BASH_VERSION)"
 fi
 
 git_topdir() {
@@ -433,7 +433,8 @@ To install the latest version from GitHub:
 Alternatively, you can simply place C<dozo> and C<getoptlong.sh> in
 your PATH.
 
-B<Dôzo> requires Bash 4.3 or later.
+B<Dôzo> requires Bash 4.4 or later, as does the C<getoptlong.sh>
+script it uses.
 
 =head1 DESCRIPTION
 
@@ -740,7 +741,23 @@ You can use any command line option in the configuration file:
     -E CUSTOM_VAR=value
     -V /data:/data
 
-Lines starting with C<#> are treated as comments.
+Lines starting with C<#> are treated as comments.  A C<#> in the middle
+of a line does B<not> start a comment, and a trailing comment is not
+supported.
+
+Write nothing but options in the configuration file.  Its contents are
+placed before the command line arguments, and option parsing stops at
+the first argument which is not an option.  Everything after it,
+including options given on the command line, is passed to the container
+as the command to execute.  This is the rule which lets you write
+C<dozo -I alpine ls -la> without C<-la> being taken as an option of
+B<Dôzo>, but it also means that a stray word in F<.dozorc> disables
+option parsing altogether.  With a trailing comment like this:
+
+    -I alpine  # use alpine
+
+C<dozo -n ls> does not show the docker command line but runs
+C<# use alpine -n ls> in the container.
 
 =head1 DOCKER-IN-DOCKER
 

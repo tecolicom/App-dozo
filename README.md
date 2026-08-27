@@ -84,7 +84,8 @@ To install the latest version from GitHub:
 Alternatively, you can simply place `dozo` and `getoptlong.sh` in
 your PATH.
 
-**Dôzo** requires Bash 4.3 or later.
+**Dôzo** requires Bash 4.4 or later, as does the `getoptlong.sh`
+script it uses.
 
 # DESCRIPTION
 
@@ -368,7 +369,23 @@ You can use any command line option in the configuration file:
     -E CUSTOM_VAR=value
     -V /data:/data
 
-Lines starting with `#` are treated as comments.
+Lines starting with `#` are treated as comments.  A `#` in the middle
+of a line does **not** start a comment, and a trailing comment is not
+supported.
+
+Write nothing but options in the configuration file.  Its contents are
+placed before the command line arguments, and option parsing stops at
+the first argument which is not an option.  Everything after it,
+including options given on the command line, is passed to the container
+as the command to execute.  This is the rule which lets you write
+`dozo -I alpine ls -la` without `-la` being taken as an option of
+**Dôzo**, but it also means that a stray word in `.dozorc` disables
+option parsing altogether.  With a trailing comment like this:
+
+    -I alpine  # use alpine
+
+`dozo -n ls` does not show the docker command line but runs
+`# use alpine -n ls` in the container.
 
 # DOCKER-IN-DOCKER
 
