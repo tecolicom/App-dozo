@@ -240,8 +240,8 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 - **-V** _path_, **-V** _from_:_to_, **--volume**=_from_:_to_
 
     Specify additional directory to mount. If only _path_ is given
-    (without `:`), it is mounted to the same path in the container.
-    Repeatable.
+    (without `:`), it is mounted to the same path in the container; a
+    relative path is resolved against the current directory. Repeatable.
 
 - **-B**, **--batch**
 
@@ -263,7 +263,8 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
     Specify port mapping. If only _port_ is given (without `:`), it is
     mapped to the same port in the container (e.g., `-P 8000` becomes
-    `8000:8000`). Repeatable.
+    `8000:8000`, and `-P 8000/udp` becomes `8000:8000/udp`).
+    Repeatable.
 
 - **-O** _option_, **--other**=_option_
 

@@ -208,10 +208,10 @@ DEFAULT_ENV=(
 top_dir=$(git_topdir) || top_dir=
 cwd=$(pwd)
 default_image=tecolicom/xlate
+export DOCKER_CLI_HINTS=false
 hostname=
 workdir=/work
 localtime=/etc/localtime
-detach=
 mount_dir=
 container=
 relative=
@@ -363,7 +363,6 @@ if [[ ${live:-} ]]; then
             [[ ! ${batch:-} ]] && [[ -t 0 ]] && exec_opts+=(--tty)
             [[ ! ${unmount:-} && ${relative:-} ]] && exec_opts+=(--workdir "$container_workdir")
             for e in "${ENV[@]}"; do exec_opts+=(-e "$e"); done
-            export DOCKER_CLI_HINTS=false
             docker exec "${exec_opts[@]}" $id "$@"
         else
             warn "attaching to container $container ($id)"
@@ -403,17 +402,19 @@ declare -a dockopt=(
         -w "$container_workdir"
     )
 for v in "${volume[@]}"; do
-    [[ $v == *:* ]] || v="$v:$v"
+    if [[ $v != *:* ]]; then
+        [[ $v == /* ]] || v="$cwd/$v"
+        v="$v:$v"
+    fi
     dockopt+=(-v "$v")
 done
 for p in "${port[@]}"; do
-    [[ $p == *:* ]] || p="$p:$p"
+    [[ $p == *:* ]] || p="${p%/*}:$p"
     dockopt+=(-p "$p")
 done
 for e in  "${ENV[@]}"; do dockopt+=(-e "$e"); done
 
 dockopt+=(
-    ${detach:+--detach}
     ${hostname:+--hostname "${hostname}"}
     ${display:+-e DISPLAY="$display"}
     "${other[@]}"
@@ -607,8 +608,8 @@ Mount directory as read-only. Shortcut for C<--mount-mode=ro>.
 =item B<-V> I<path>, B<-V> I<from>:I<to>, B<--volume>=I<from>:I<to>
 
 Specify additional directory to mount. If only I<path> is given
-(without C<:>), it is mounted to the same path in the container.
-Repeatable.
+(without C<:>), it is mounted to the same path in the container; a
+relative path is resolved against the current directory. Repeatable.
 
 =item B<-B>, B<--batch>
 
@@ -630,7 +631,8 @@ Kill and remove existing container.
 
 Specify port mapping. If only I<port> is given (without C<:>), it is
 mapped to the same port in the container (e.g., C<-P 8000> becomes
-C<8000:8000>). Repeatable.
+C<8000:8000>, and C<-P 8000/udp> becomes C<8000:8000/udp>).
+Repeatable.
 
 =item B<-O> I<option>, B<--other>=I<option>
 
