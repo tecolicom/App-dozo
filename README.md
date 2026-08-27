@@ -378,6 +378,11 @@ Lines starting with `#` are treated as comments.  A `#` in the middle
 of a line does **not** start a comment, and a trailing comment is not
 supported.
 
+Each line is split into arguments in the same way as the shell does, so
+quotation marks have to be balanced.  A line which cannot be parsed is
+an error, and **Dôzo** stops after showing the file name, the line
+number and the line itself.
+
 Write nothing but options in the configuration file.  Its contents are
 placed before the command line arguments, and option parsing stops at
 the first argument which is not an option.  Everything after it,

@@ -230,9 +230,13 @@ for dir in "${rcpath[@]}"; do
     rc="$dir/.dozorc"
     [[ -r $rc ]] || continue
     warn "reading $rc"
+    lineno=0
     while IFS= read -r line || [[ $line ]]; do
+        ((++lineno))
         [[ $line =~ ^# ]] && continue
         [[ $line ]] || continue
+        err=$(xargs printf '%s\0' <<< "$line" 2>&1 > /dev/null) \
+            || die "$rc line $lineno: ${err:-parse error}: $line"
         while IFS= read -r -d '' arg; do
             rc_opts+=("$arg")
         done < <(xargs printf '%s\0' <<< "$line")
@@ -749,6 +753,11 @@ You can use any command line option in the configuration file:
 Lines starting with C<#> are treated as comments.  A C<#> in the middle
 of a line does B<not> start a comment, and a trailing comment is not
 supported.
+
+Each line is split into arguments in the same way as the shell does, so
+quotation marks have to be balanced.  A line which cannot be parsed is
+an error, and B<Dôzo> stops after showing the file name, the line
+number and the line itself.
 
 Write nothing but options in the configuration file.  Its contents are
 placed before the command line arguments, and option parsing stops at
