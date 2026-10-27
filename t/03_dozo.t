@@ -161,8 +161,8 @@ subtest '--bundle' => sub {
     # a PATH with bash but without getoptlong.sh
     my $bin = "$dir/bin";
     mkdir $bin;
-    chomp(my $bash = `command -v bash`);
-    symlink $bash, "$bin/bash" or die;
+    my ($bash) = grep { -x } map { "$_/bash" } split /:/, $ENV{PATH};
+    symlink $bash, "$bin/bash" or die "bash not found in PATH";
     local $ENV{PATH} = "$bin:/usr/bin:/bin";
     my $out = `$bundled -n -I alpine echo test 2>&1`;
     like($out, qr/docker run .* alpine echo test/, 'bundled dozo runs without getoptlong.sh');
