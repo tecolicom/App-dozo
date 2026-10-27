@@ -126,9 +126,9 @@ bundle() {
     head -n 1 "$self"
     echo "$GOL_MARK"
     echo "# getoptlong.sh version $GOL_VERSION"
-    grep -v '^#!' "$gol"
+    sed -e 1d "$gol"
     echo "# end of getoptlong.sh"
-    tail -n +2 "$self"
+    sed -e 1d "$self"
     exit 0
 }
 
