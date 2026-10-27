@@ -295,18 +295,23 @@ declare -A OPTS=(
 # Parse options
 ##############################################################################
 
-. getoptlong.sh OPTS "${rc_opts[@]}" "$@"
+# getoptlong.sh is loaded unless dozo --bundle has embedded it; "-"
+# keeps the arguments of dozo away from it meanwhile
+declare -F getoptlong >/dev/null || . getoptlong.sh -
+set -- "${rc_opts[@]}" "$@"
+getoptlong init OPTS && getoptlong parse "$@" && eval "$(getoptlong set)"
 
 # Flush buffered warnings
 warn() { [[ ${quiet:-} ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
-# --bundle: print this script with getoptlong.sh embedded in place of
-# the line that sources it, so that the result runs as a single file.
-# A script that is bundled already is printed as it is.
+# --bundle: print this script with getoptlong.sh inserted after the
+# first line, so that the result runs as a single file.  A script that
+# is bundled already (it has the mark) is printed as it is.
+GOL_MARK='# getoptlong.sh embedded by dozo --bundle'
 bundle() {
-    local self=${BASH_SOURCE[0]} gol= dir line
-    if ! grep -q '^\. getoptlong\.sh ' "$self"; then
+    local self=${BASH_SOURCE[0]} gol= dir
+    if grep -qxF "$GOL_MARK" "$self"; then
         cat "$self"
         return
     fi
@@ -318,25 +323,12 @@ bundle() {
     # like ".", fall back to the current directory
     [[ $gol || ! -r getoptlong.sh ]] || gol=./getoptlong.sh
     [[ $gol ]] || die "getoptlong.sh not found in PATH"
-    while IFS= read -r line || [[ $line ]]; do
-        if [[ $line == '. getoptlong.sh '* ]]; then
-            # ". getoptlong.sh NAME ARGS..." becomes the functions of
-            # getoptlong.sh followed by init/parse/set.  The arguments
-            # are cleared around them so that the auto-initialization at
-            # the end of getoptlong.sh does not see the arguments of dozo.
-            local args=${line#. getoptlong.sh } name
-            name=${args%% *} args=${args#"$name"}
-            echo "# getoptlong.sh $GOL_VERSION, embedded by dozo --bundle"
-            echo '_dozo_argv=("$@"); set --'
-            grep -v '^#!' "$gol"
-            echo '# end of getoptlong.sh'
-            echo 'set -- "${_dozo_argv[@]}"; unset _dozo_argv'
-            echo "set --$args"
-            echo "getoptlong init $name && getoptlong parse \"\$@\" && eval \"\$(getoptlong set)\""
-        else
-            printf '%s\n' "$line"
-        fi
-    done < "$self"
+    head -n 1 "$self"
+    echo "$GOL_MARK"
+    echo "# getoptlong.sh version $GOL_VERSION"
+    grep -v '^#!' "$gol"
+    echo "# end of getoptlong.sh"
+    tail -n +2 "$self"
 }
 [[ ${bundle:-} ]] && { bundle; exit; }
 
@@ -699,9 +691,10 @@ Specify additional docker options. Repeatable.
 
 =item B<--bundle>
 
-Print B<Dôzo> itself, with the C<getoptlong.sh> found in C<PATH>
-embedded in place of the line that loads it, and exit without running
-Docker.  The result is a single file that runs where only Bash 4.4 or
+Print B<Dôzo> itself with the C<getoptlong.sh> found in C<PATH>
+inserted after the first line, and exit without running Docker.
+B<Dôzo> loads C<getoptlong.sh> only when its functions are not
+defined yet, so the inserted copy is used as it is.  The result is a single file that runs where only Bash 4.4 or
 later and Docker are available:
 
     dozo --bundle > ~/.local/bin/dozo-single

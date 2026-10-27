@@ -152,10 +152,11 @@ subtest '--bundle' => sub {
     open my $fh, '<', $bundled or die;
     my $text = do { local $/; <$fh> };
     close $fh;
-    like($text, qr/^# getoptlong\.sh .*embedded by dozo --bundle\n(?s:.*)^gol_parse \(\)(?s:.*)^# end of getoptlong\.sh\n/m,
-         'getoptlong.sh is embedded');
-    like($text, qr/^getoptlong init OPTS && getoptlong parse "\$@"/m, 'getoptlong is called explicitly');
-    unlike($text, qr/^\. getoptlong\.sh /m, 'the line loading getoptlong.sh is replaced');
+    like($text, qr/\A#!.*\n# getoptlong\.sh embedded by dozo --bundle\n(?s:.*)^gol_parse \(\)(?s:.*)^# end of getoptlong\.sh\n/m,
+         'getoptlong.sh is inserted after the first line');
+    my ($orig) = do { local(@ARGV, $/) = ($dozo); <> };
+    my $body = $orig =~ s/\A.*\n//r;
+    like($text, qr/\Q$body\E\z/, 'the rest of dozo follows unchanged');
 
     # a PATH with bash but without getoptlong.sh
     my $bin = "$dir/bin";

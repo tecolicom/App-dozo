@@ -289,9 +289,10 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
 - **--bundle**
 
-    Print **Dôzo** itself, with the `getoptlong.sh` found in `PATH`
-    embedded in place of the line that loads it, and exit without running
-    Docker.  The result is a single file that runs where only Bash 4.4 or
+    Print **Dôzo** itself with the `getoptlong.sh` found in `PATH`
+    inserted after the first line, and exit without running Docker.
+    **Dôzo** loads `getoptlong.sh` only when its functions are not
+    defined yet, so the inserted copy is used as it is.  The result is a single file that runs where only Bash 4.4 or
     later and Docker are available:
 
         dozo --bundle > ~/.local/bin/dozo-single
