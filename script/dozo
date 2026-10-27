@@ -266,7 +266,7 @@ END
 default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; }
 
 declare -A OPTS=(
-    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.0.0
+    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0
     [       help | h ! # show help                       ]=
     [    version |   ! # show version                    ]=
     [      debug | d   # debug mode                      ]=
