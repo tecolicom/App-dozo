@@ -26,7 +26,7 @@ jobs:
         with:
           perl-version: ${{ matrix.perl }}
       - name: Install dependencies
-        run: cpanm -nq --installdeps --with-develop --with-recommends .
+        run: cpanm -nq --metacpan --installdeps --with-develop --with-recommends .
       - name: Build
         run: perl Build.PL && ./Build
       - name: Run test
