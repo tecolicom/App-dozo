@@ -34,7 +34,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
 
-        --bundle       print dozo with getoptlong.sh embedded, and exit
+        --bundle       print a self-contained dozo, and exit
 
 # VERSION
 
@@ -86,8 +86,9 @@ To install the latest version from GitHub:
 Alternatively, you can simply place `dozo` and `getoptlong.sh` in
 your PATH.
 
-A single file with `getoptlong.sh` embedded is attached to each
-release on GitHub; download it and place it in your PATH:
+A self-contained single file, which needs no other part of the
+distribution, is attached to each release on GitHub; download it and
+place it in your PATH:
 
     curl -fsSLo ~/.local/bin/dozo \
         https://github.com/tecolicom/App-dozo/releases/download/VERSION/dozo
@@ -289,11 +290,10 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
 - **--bundle**
 
-    Print **Dôzo** itself with the `getoptlong.sh` found in `PATH`
-    inserted after the first line, and exit without running Docker.
-    **Dôzo** loads `getoptlong.sh` only when its functions are not
-    defined yet, so the inserted copy is used as it is.  The result is a single file that runs where only Bash 4.4 or
-    later and Docker are available:
+    Print a self-contained **Dôzo**, which includes what it needs from
+    the distribution, and exit without running Docker.  The result is a
+    single file that runs where only Bash 4.4 or later and Docker are
+    available:
 
         dozo --bundle > ~/.local/bin/dozo-single
 
