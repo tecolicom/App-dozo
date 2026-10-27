@@ -34,6 +34,8 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
 
+        --bundle       print dozo with getoptlong.sh embedded, and exit
+
 # VERSION
 
 Version 1.01
@@ -83,6 +85,19 @@ To install the latest version from GitHub:
 
 Alternatively, you can simply place `dozo` and `getoptlong.sh` in
 your PATH.
+
+A single file with `getoptlong.sh` embedded is attached to each
+release on GitHub; download it and place it in your PATH:
+
+    curl -fsSLo ~/.local/bin/dozo \
+        https://github.com/tecolicom/App-dozo/releases/download/VERSION/dozo
+    chmod +x ~/.local/bin/dozo
+
+The same file is made by `dozo --bundle` from an installed **Dôzo**,
+also inside the default image once it carries a **Dôzo** with this
+option:
+
+    docker run --rm tecolicom/xlate dozo --bundle > dozo
 
 **Dôzo** requires Bash 4.4 or later, as does the `getoptlong.sh`
 script it uses.
@@ -271,6 +286,17 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 - **-O** _option_, **--other**=_option_
 
     Specify additional docker options. Repeatable.
+
+- **--bundle**
+
+    Print **Dôzo** itself, with the `getoptlong.sh` found in `PATH`
+    embedded in place of the line that loads it, and exit without running
+    Docker.  The result is a single file that runs where only Bash 4.4 or
+    later and Docker are available:
+
+        dozo --bundle > ~/.local/bin/dozo-single
+
+    A file made this way prints itself again.
 
 # INTERACTIVE MODE
 

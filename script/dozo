@@ -44,6 +44,8 @@ dozo -I IMAGE [ options ] [ command ... ]
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
 
+        --bundle       print dozo with getoptlong.sh embedded, and exit
+
 =head1 VERSION
 
 Version 1.01
@@ -286,6 +288,7 @@ declare -A OPTS=(
     [       kill | K   # kill existing container         ]=
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
+    [     bundle |     # print self-contained dozo, exit ]=
 )
 
 ##############################################################################
@@ -297,6 +300,37 @@ declare -A OPTS=(
 # Flush buffered warnings
 warn() { [[ ${quiet:-} ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
+
+# --bundle: print this script with getoptlong.sh embedded in place of
+# the line that sources it, so that the result runs as a single file.
+# A script that is bundled already is printed as it is.
+bundle() {
+    local self=${BASH_SOURCE[0]} gol= dir line
+    if ! grep -q '^\. getoptlong\.sh ' "$self"; then
+        cat "$self"
+        return
+    fi
+    local IFS=:
+    for dir in $PATH; do
+        [[ -r ${dir:-.}/getoptlong.sh ]] && { gol=${dir:-.}/getoptlong.sh; break; }
+    done
+    unset IFS
+    # like ".", fall back to the current directory
+    [[ $gol || ! -r getoptlong.sh ]] || gol=./getoptlong.sh
+    [[ $gol ]] || die "getoptlong.sh not found in PATH"
+    while IFS= read -r line || [[ $line ]]; do
+        if [[ $line == '. getoptlong.sh '* ]]; then
+            echo "# getoptlong.sh $GOL_VERSION, embedded by dozo --bundle"
+            echo ". <(cat <<'__GETOPTLONG__'"
+            cat "$gol"
+            echo "__GETOPTLONG__"
+            echo ") ${line#. getoptlong.sh }"
+        else
+            printf '%s\n' "$line"
+        fi
+    done < "$self"
+}
+[[ ${bundle:-} ]] && { bundle; exit; }
 
 # Apply options
 [[ ${mount_cwd:-} ]] && mount_dir="$cwd"
@@ -447,6 +481,19 @@ To install the latest version from GitHub:
 
 Alternatively, you can simply place C<dozo> and C<getoptlong.sh> in
 your PATH.
+
+A single file with C<getoptlong.sh> embedded is attached to each
+release on GitHub; download it and place it in your PATH:
+
+    curl -fsSLo ~/.local/bin/dozo \
+        https://github.com/tecolicom/App-dozo/releases/download/VERSION/dozo
+    chmod +x ~/.local/bin/dozo
+
+The same file is made by C<dozo --bundle> from an installed B<Dôzo>,
+also inside the default image once it carries a B<Dôzo> with this
+option:
+
+    docker run --rm tecolicom/xlate dozo --bundle > dozo
 
 B<Dôzo> requires Bash 4.4 or later, as does the C<getoptlong.sh>
 script it uses.
@@ -641,6 +688,17 @@ Repeatable.
 =item B<-O> I<option>, B<--other>=I<option>
 
 Specify additional docker options. Repeatable.
+
+=item B<--bundle>
+
+Print B<Dôzo> itself, with the C<getoptlong.sh> found in C<PATH>
+embedded in place of the line that loads it, and exit without running
+Docker.  The result is a single file that runs where only Bash 4.4 or
+later and Docker are available:
+
+    dozo --bundle > ~/.local/bin/dozo-single
+
+A file made this way prints itself again.
 
 =back
 
