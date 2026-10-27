@@ -13,6 +13,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
 
     -h, --help         show help
         --version      show version
+        --bundle       print a self-contained dozo
     -d, --debug        debug mode (show full command)
     -x, --trace        trace mode (set -x)
     -q, --quiet        quiet mode
@@ -33,8 +34,6 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -K, --kill         kill and remove existing container
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
-
-        --bundle       print a self-contained dozo, and exit
 
 # VERSION
 
@@ -188,6 +187,17 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
     Show version number.
 
+- **--bundle**
+
+    Print a self-contained **Dôzo**, which includes what it needs from
+    the distribution, and exit without running Docker.  The result is a
+    single file that runs where only Bash 4.4 or later and Docker are
+    available:
+
+        dozo --bundle > ~/.local/bin/dozo-single
+
+    A file made this way prints itself again.
+
 - **-d**, **--debug**
 
     Enable debug mode. Shows the full docker command line that will be executed.
@@ -287,17 +297,6 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 - **-O** _option_, **--other**=_option_
 
     Specify additional docker options. Repeatable.
-
-- **--bundle**
-
-    Print a self-contained **Dôzo**, which includes what it needs from
-    the distribution, and exit without running Docker.  The result is a
-    single file that runs where only Bash 4.4 or later and Docker are
-    available:
-
-        dozo --bundle > ~/.local/bin/dozo-single
-
-    A file made this way prints itself again.
 
 # INTERACTIVE MODE
 

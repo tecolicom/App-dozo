@@ -169,6 +169,15 @@ subtest '--bundle' => sub {
     $out = `$bundled --no-such-option 2>&1`;
     like($out, qr/no such option/, 'bundled dozo parses options');
     is(`$bundled -q --bundle`, $text, 'bundling a bundled dozo gives the same file');
+
+    # no messages on stderr, even with a .dozorc to report
+    my $home = "$dir/home";
+    mkdir $home;
+    open my $rc, '>', "$home/.dozorc" or die;
+    print $rc "-I alpine\n";
+    close $rc;
+    local $ENV{HOME} = $home;
+    is(`$bundled --bundle 2>&1 >/dev/null`, '', '--bundle prints nothing on stderr');
 };
 
 done_testing;
