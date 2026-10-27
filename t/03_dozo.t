@@ -134,4 +134,13 @@ subtest '-V option without colon' => sub {
     unlike($out, qr/no such option|invalid.*option|getoptlong/i, '-V with explicit colon mount has no parsing error');
 };
 
+# Test: -B passes piped input but does not wait for a terminal
+subtest '-B with piped input' => sub {
+    my $out = `echo x | $dozo -B -n -I alpine true 2>&1`;
+    like($out, qr/--interactive/, '-B with a pipe keeps --interactive');
+    unlike($out, qr/--tty/, '-B with a pipe gives no --tty');
+    $out = `$dozo -n -I alpine true </dev/null 2>&1`;
+    like($out, qr/--interactive/, 'without -B --interactive is given');
+};
+
 done_testing;

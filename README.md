@@ -245,7 +245,9 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
 - **-B**, **--batch**
 
-    Run in batch mode (non-interactive).
+    Run in batch mode (non-interactive): the container gets no terminal
+    and does not wait for input from one.  Input from a pipe or a file is
+    still passed to the command, as in `git diff | dozo -B cdif`.
 
 - **-L**, **--live**
 
@@ -272,10 +274,13 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
 # INTERACTIVE MODE
 
-Unless the **-B** (batch) option is given, the container is started
-with Docker's `--interactive` option, and `--tty` is added as well
-when the standard input is a terminal (TTY). The same rule is applied
-to `docker exec` in live container mode.
+The container is started with Docker's `--interactive` option, and
+`--tty` is added as well when the standard input is a terminal (TTY).
+With the **-B** (batch) option, neither is given when the standard
+input is a terminal, so that nothing waits for keyboard input; when
+the standard input is a pipe or a file, `--interactive` is still
+given so that the input reaches the command.  The same rule is
+applied to `docker exec` in live container mode.
 
 This allows seamless interactive use when attaching to containers or
 running interactive commands.

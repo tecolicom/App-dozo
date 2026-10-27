@@ -359,7 +359,8 @@ if [[ ${live:-} ]]; then
     if [[ ${status:-} == running ]] || id=$(docker_find -s running "$container"); then
         if (( $# > 0 )); then
             declare -a exec_opts=()
-            [[ ! ${batch:-} ]] && exec_opts+=(--interactive)
+            # -B: do not wait for a terminal, but pass piped input
+            [[ ! ${batch:-} || ! -t 0 ]] && exec_opts+=(--interactive)
             [[ ! ${batch:-} ]] && [[ -t 0 ]] && exec_opts+=(--tty)
             [[ ! ${unmount:-} && ${relative:-} ]] && exec_opts+=(--workdir "$container_workdir")
             for e in "${ENV[@]}"; do exec_opts+=(-e "$e"); done
@@ -392,7 +393,8 @@ declare -a dockopt=(
     -e XLATE_RUNNING_ON_DOCKER=1
     --init
 )
-[[ ! ${batch:-}   ]] && dockopt+=(--interactive)
+# -B: do not wait for a terminal, but pass piped input
+[[ ! ${batch:-} || ! -t 0 ]] && dockopt+=(--interactive)
 [[ ! ${batch:-}   ]] && [[ -t 0 ]] && dockopt+=(--tty)
 [[ ! ${live:-}    ]] && dockopt+=(--rm)
 [[   ${live:-}    ]] && dockopt+=(${container:+--name "$container"})
@@ -613,7 +615,9 @@ relative path is resolved against the current directory. Repeatable.
 
 =item B<-B>, B<--batch>
 
-Run in batch mode (non-interactive).
+Run in batch mode (non-interactive): the container gets no terminal
+and does not wait for input from one.  Input from a pipe or a file is
+still passed to the command, as in C<git diff | dozo -B cdif>.
 
 =item B<-L>, B<--live>
 
@@ -642,10 +646,13 @@ Specify additional docker options. Repeatable.
 
 =head1 INTERACTIVE MODE
 
-Unless the B<-B> (batch) option is given, the container is started
-with Docker's C<--interactive> option, and C<--tty> is added as well
-when the standard input is a terminal (TTY). The same rule is applied
-to C<docker exec> in live container mode.
+The container is started with Docker's C<--interactive> option, and
+C<--tty> is added as well when the standard input is a terminal (TTY).
+With the B<-B> (batch) option, neither is given when the standard
+input is a terminal, so that nothing waits for keyboard input; when
+the standard input is a pipe or a file, C<--interactive> is still
+given so that the input reaches the command.  The same rule is
+applied to C<docker exec> in live container mode.
 
 This allows seamless interactive use when attaching to containers or
 running interactive commands.
