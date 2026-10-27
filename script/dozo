@@ -320,11 +320,19 @@ bundle() {
     [[ $gol ]] || die "getoptlong.sh not found in PATH"
     while IFS= read -r line || [[ $line ]]; do
         if [[ $line == '. getoptlong.sh '* ]]; then
+            # ". getoptlong.sh NAME ARGS..." becomes the functions of
+            # getoptlong.sh followed by init/parse/set.  The arguments
+            # are cleared around them so that the auto-initialization at
+            # the end of getoptlong.sh does not see the arguments of dozo.
+            local args=${line#. getoptlong.sh } name
+            name=${args%% *} args=${args#"$name"}
             echo "# getoptlong.sh $GOL_VERSION, embedded by dozo --bundle"
-            echo ". <(cat <<'__GETOPTLONG__'"
-            cat "$gol"
-            echo "__GETOPTLONG__"
-            echo ") ${line#. getoptlong.sh }"
+            echo '_dozo_argv=("$@"); set --'
+            grep -v '^#!' "$gol"
+            echo '# end of getoptlong.sh'
+            echo 'set -- "${_dozo_argv[@]}"; unset _dozo_argv'
+            echo "set --$args"
+            echo "getoptlong init $name && getoptlong parse \"\$@\" && eval \"\$(getoptlong set)\""
         else
             printf '%s\n' "$line"
         fi

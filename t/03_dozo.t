@@ -152,7 +152,9 @@ subtest '--bundle' => sub {
     open my $fh, '<', $bundled or die;
     my $text = do { local $/; <$fh> };
     close $fh;
-    like($text, qr/^__GETOPTLONG__\n/m, 'getoptlong.sh is embedded');
+    like($text, qr/^# getoptlong\.sh .*embedded by dozo --bundle\n(?s:.*)^gol_parse \(\)(?s:.*)^# end of getoptlong\.sh\n/m,
+         'getoptlong.sh is embedded');
+    like($text, qr/^getoptlong init OPTS && getoptlong parse "\$@"/m, 'getoptlong is called explicitly');
     unlike($text, qr/^\. getoptlong\.sh /m, 'the line loading getoptlong.sh is replaced');
 
     # a PATH with bash but without getoptlong.sh
