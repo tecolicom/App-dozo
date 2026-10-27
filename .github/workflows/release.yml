@@ -1,0 +1,46 @@
+name: release
+
+# Attach a single-file dozo (getoptlong.sh embedded by dozo --bundle)
+# and its SHA-256 sum to the GitHub release of each version tag.
+on:
+  push:
+    tags:
+      - '*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.42'
+
+      - name: Install getoptlong.sh
+        run: cpanm -nq Getopt::Long::Bash
+
+      - name: Make the single-file dozo
+        run: |
+          mkdir dist
+          script/dozo -q --bundle > dist/dozo
+          chmod +x dist/dozo
+          # it must run without getoptlong.sh in PATH
+          mkdir nogol
+          ln -s "$(command -v bash)" nogol/bash
+          PATH="$PWD/nogol:/usr/bin:/bin" dist/dozo -n -I alpine true | grep -q 'docker run'
+          PATH="$PWD/nogol:/usr/bin:/bin" dist/dozo --version
+          (cd dist && sha256sum dozo > dozo.sha256)
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --title "$TAG" --notes "App::dozo $TAG"
+          gh release upload "$TAG" dist/dozo dist/dozo.sha256 --clobber
