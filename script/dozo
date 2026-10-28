@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-define() { IFS='\n' read -r -d '' ${1} || true ; }
+define() { IFS= read -rd '' "$1" || : ; }
 
 myname="${0##*/}"
 
@@ -97,7 +97,7 @@ help() {
     exit 0
 }
 
-# -v callback: show version
+# --version callback: show version
 version() {
     echo "$my_version"
     exit 0
@@ -143,7 +143,7 @@ _warn_buffer=()
 warn() { _warn_buffer+=("$*"); }
 
 debug() {
-    [[ ${debug:-} ]] && echo "debug: $*" >&2 || true
+    [[ $debug ]] && echo "debug: $*" >&2 || true
 }
 
 die() {
@@ -176,26 +176,17 @@ get_ip() {
     echo "$ip"
 }
 
+# -N NAME, or the image name followed by the mounted directory name
 container_name() {
-    local name
-    if [[ ${given_name:-} ]]
-    then
-        name="$given_name"
-    else
-        if [[ ${image:-} =~ (.*/)?([-_.a-zA-Z0-9]+) ]]
-        then name=${BASH_REMATCH[2]}
-        else name=$myname
-        fi
-        local dir="${mount_dir:-$cwd}"
-        [[ $dir ]] && name+=.${dir##*/}
-    fi
-    echo "$name"
+    [[ $name ]] && { echo "$name"; return; }
+    local base=$myname dir=${mount_dir:-$cwd}
+    [[ $image =~ (.*/)?([-_.a-zA-Z0-9]+) ]] && base=${BASH_REMATCH[2]}
+    echo "$base${dir:+.${dir##*/}}"
 }
 
 docker_find() {
     local OPT OPTARG OPTIND status=() id
-    while getopts "s:" OPT
-    do
+    while getopts "s:" OPT; do
         case $OPT in
             s) status+=("$OPTARG") ;;
         esac
@@ -206,15 +197,12 @@ docker_find() {
 }
 
 docker_status() {
-    command docker inspect --format='{{.State.Status}}' $1
+    command docker inspect --format='{{.State.Status}}' "$1"
 }
 
 docker() {
     debug "docker $*"
-    if [[ ${dryrun:-} ]]; then
-        echo docker "$@"
-        return 0
-    fi
+    [[ $dryrun ]] && { echo docker "$@"; return; }
     command docker "$@"
 }
 
@@ -239,18 +227,17 @@ top_dir=$(git_topdir) || top_dir=
 cwd=$(pwd)
 default_image=tecolicom/xlate
 export DOCKER_CLI_HINTS=false
-hostname=
 workdir=/work
 localtime=/etc/localtime
 mount_dir=
+mounting=
 container=
+container_status=
 relative=
 display=
 
 # Set default volume based on git directory
-if [[ $top_dir && $top_dir != "$cwd" ]]; then
-    mount_dir="$top_dir"
-fi
+[[ $top_dir && $top_dir != "$cwd" ]] && mount_dir="$top_dir"
 
 ##############################################################################
 # Read .dozorc
@@ -271,8 +258,7 @@ for dir in "${rcpath[@]}"; do
     lineno=0
     while IFS= read -r line || [[ $line ]]; do
         ((++lineno))
-        [[ $line =~ ^# ]] && continue
-        [[ $line ]] || continue
+        [[ $line && $line != \#* ]] || continue
         err=$(xargs printf '%s\0' <<< "$line" 2>&1 > /dev/null) \
             || die "$rc line $lineno: ${err:-parse error}: $line"
         while IFS= read -r -d '' arg; do
@@ -330,20 +316,28 @@ set -- "${rc_opts[@]}" "$@"
 getoptlong init OPTS && getoptlong parse "$@" && eval "$(getoptlong set)"
 
 # Flush buffered warnings
-warn() { [[ ${quiet:-} ]] || echo "$*" >&2; }
+warn() { [[ $quiet ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
 # Apply options
-[[ ${mount_cwd:-} ]] && mount_dir="$cwd"
-[[ ${mount_home:-} ]] && { mount_dir="$HOME"; DEFAULT_ENV+=(HOME=$workdir); }
-[[ ${mount_ro:-} ]] && mount_mode=ro  # -R overrides --mount-mode
-given_name="${name:-}"
+[[ $mount_cwd ]] && mount_dir="$cwd"
+[[ $mount_home ]] && { mount_dir="$HOME"; DEFAULT_ENV+=(HOME=$workdir); }
+[[ $mount_ro ]] && mount_mode=ro  # -R overrides --mount-mode
+
+# env_opts and tty_opts are used by both docker run and docker exec (-L)
 
 # Merge environment variables
 ENV=("${DEFAULT_ENV[@]}" "${env[@]}")
+env_opts=()
+for e in "${ENV[@]}"; do env_opts+=(-e "$e"); done
+
+# -B: do not wait for a terminal, but pass piped input
+tty_opts=()
+[[ ! $batch || ! -t 0 ]] && tty_opts+=(--interactive)
+[[ ! $batch && -t 0 ]] && tty_opts+=(--tty)
 
 # Determine working directory in the container
-if [[ ! ${unmount:-} && $mount_dir && $mount_dir != "$cwd" ]]; then
+if [[ ! $unmount && $mount_dir && $mount_dir != "$cwd" ]]; then
     mounting=1
     [[ ${cwd#"$mount_dir"/} != "$cwd" ]] && relative="${cwd#"$mount_dir"/}"
 fi
@@ -353,56 +347,52 @@ container_workdir="${workdir}${relative:+/${relative}}"
 # Kill container
 ##############################################################################
 
-if [[ ${kill:-} ]]; then
+if [[ $kill ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
         docker rm -f "$container" | sed -e "s/\$/ ($id) is removed/"
     fi
-    [[ ${live:-} ]] || exit 0
+    [[ $live ]] || exit 0
 fi
 
 ##############################################################################
 # Live container handling
 ##############################################################################
 
-if [[ ${live:-} ]]; then
+if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
-        status=$(docker_status $id)
-        case $status in
+        container_status=$(docker_status "$id")
+        case $container_status in
             created|exited)
                 action=starting
-                [[ $status == exited ]] && action=restarting
-                warn "$action $status container $container ($id)"
-                docker start $id > /dev/null || exit 1
-                [[ ${dryrun:-} ]] && status=running && debug "fake status=running"
+                [[ $container_status == exited ]] && action=restarting
+                warn "$action $container_status container $container ($id)"
+                docker start "$id" > /dev/null || exit 1
+                [[ $dryrun ]] && container_status=running && debug "fake container_status=running"
                 ;;
             paused)
                 warn "unpausing container $container ($id)"
-                docker unpause $id || exit 1
-                [[ ${dryrun:-} ]] && status=running && debug "fake status=running"
+                docker unpause "$id" || exit 1
+                [[ $dryrun ]] && container_status=running && debug "fake container_status=running"
                 ;;
             running)
                 ;;
             *)
-                warn "unknown status $status of $container ($id)"
+                warn "unknown status $container_status of $container ($id)"
                 ;;
         esac
     else
         debug "container not found"
     fi
-    if [[ ${status:-} == running ]] || id=$(docker_find -s running "$container"); then
+    if [[ $container_status == running ]] || id=$(docker_find -s running "$container"); then
         if (( $# > 0 )); then
-            declare -a exec_opts=()
-            # -B: do not wait for a terminal, but pass piped input
-            [[ ! ${batch:-} || ! -t 0 ]] && exec_opts+=(--interactive)
-            [[ ! ${batch:-} ]] && [[ -t 0 ]] && exec_opts+=(--tty)
-            [[ ! ${unmount:-} && ${relative:-} ]] && exec_opts+=(--workdir "$container_workdir")
-            for e in "${ENV[@]}"; do exec_opts+=(-e "$e"); done
-            docker exec "${exec_opts[@]}" $id "$@"
+            exec_opts=("${tty_opts[@]}")
+            [[ ! $unmount && $relative ]] && exec_opts+=(--workdir "$container_workdir")
+            docker exec "${exec_opts[@]}" "${env_opts[@]}" "$id" "$@"
         else
             warn "attaching to container $container ($id)"
-            docker attach $id
+            docker attach "$id"
         fi
         exit
     fi
@@ -415,26 +405,25 @@ fi
 
 [[ $image ]] || die "Docker image must be specified with -I option"
 
-[[ ${mounting:-} ]] && warn "mount $mount_dir to $workdir"
+[[ $mounting ]] && warn "mount $mount_dir to $workdir"
 
 if [[ ${DISPLAY:-} ]]; then
     ip=$(get_ip)
     [[ $ip ]] && display="$ip:0"
 fi
-: ${hostname:=$(<<< "${image}" sed -e 's:.*/::' -e 's/:.*//' | tr -d '[:space:]')}
+hostname=${image##*/}
+hostname=${hostname%%:*}
 
 declare -a dockopt=(
     -e DOZO_RUNNING_ON_DOCKER=1
     -e XLATE_RUNNING_ON_DOCKER=1
     --init
+    "${tty_opts[@]}"
 )
-# -B: do not wait for a terminal, but pass piped input
-[[ ! ${batch:-} || ! -t 0 ]] && dockopt+=(--interactive)
-[[ ! ${batch:-}   ]] && [[ -t 0 ]] && dockopt+=(--tty)
-[[ ! ${live:-}    ]] && dockopt+=(--rm)
-[[   ${live:-}    ]] && dockopt+=(${container:+--name "$container"})
-[[ -e $localtime  ]] && dockopt+=(-v $localtime:$localtime:ro)
-[[ ! ${unmount:-} ]] && dockopt+=(
+[[ ! $live       ]] && dockopt+=(--rm)
+[[   $live       ]] && dockopt+=(--name "$container")
+[[ -e $localtime ]] && dockopt+=(-v $localtime:$localtime:ro)
+[[ ! $unmount    ]] && dockopt+=(
         -v "${mount_dir:-$cwd}:${workdir}:${mount_mode}"
         -w "$container_workdir"
     )
@@ -449,18 +438,17 @@ for p in "${port[@]}"; do
     [[ $p == *:* ]] || p="${p%/*}:$p"
     dockopt+=(-p "$p")
 done
-for e in  "${ENV[@]}"; do dockopt+=(-e "$e"); done
-
 dockopt+=(
-    ${hostname:+--hostname "${hostname}"}
+    "${env_opts[@]}"
+    ${hostname:+--hostname "$hostname"}
     ${display:+-e DISPLAY="$display"}
     "${other[@]}"
 )
 
 # Display docker run info
-if [[ ! ${quiet:-} ]]; then
+if [[ ! $quiet ]]; then
     info="image=${image} env=${#ENV[@]}"
-    [[ ${live:-} && ${container:-} ]] && info+=" container=${container}"
+    [[ $live ]] && info+=" container=${container}"
     (( $# > 0 )) && info+=" command=$*"
     warn "docker run ${info}"
 fi
