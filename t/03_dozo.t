@@ -180,4 +180,72 @@ subtest '--bundle' => sub {
     is(`$bundled --bundle 2>&1 >/dev/null`, '', '--bundle prints nothing on stderr');
 };
 
+subtest '-A' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    my $log = "$dir/log";
+    open my $fh, '>', "$dir/docker" or die;
+    print $fh <<'STUB';
+#!/bin/bash
+echo "$*" >> "$STUB_LOG"
+case $1 in
+    pull)    echo pulled; [[ ! $STUB_PULL_FAILS ]] ;;
+    ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
+    inspect) echo running ;;
+    run)     echo ran ;;
+    exec)    echo execed ;;
+esac
+STUB
+    close $fh;
+    chmod 0755, "$dir/docker" or die;
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+
+    my $out = `$dozo -I alpine true 2>/dev/null`;
+    unlike($calls->(), qr/^pull/m, 'no pull without -A');
+
+    $out = `$dozo -A -I alpine true 2>/dev/null`;
+    is($?, 0, 'exit status');
+    is($out, "ran\n", 'the output of pull is not on stdout');
+    like($calls->(), qr/^pull alpine\nrun .* alpine true$/m, 'pull, then run');
+
+    $out = `$dozo --auto-pull -q -I alpine true 2>&1`;
+    is($out, "ran\n", '-q shows nothing of pull');
+    like($calls->(), qr/^pull --quiet alpine\n/m, '--auto-pull -q');
+
+    {
+        local $ENV{STUB_PULL_FAILS} = 1;
+        $out = `$dozo -A -I alpine true 2>&1`;
+        like($out, qr/cannot pull alpine/, 'failed pull is reported');
+        like($out, qr/^ran$/m, 'and the command still runs');
+        is($?, 0, 'with its own exit status');
+        $calls->();
+    }
+
+    {
+        local $ENV{STUB_CONTAINER} = 1;
+        $out = `$dozo -A -L -I alpine true 2>&1`;
+        like($out, qr/-K/, 'existing live container: tells about -K');
+        like($out, qr/^execed$/m, 'and uses the container');
+        unlike($calls->(), qr/^pull/m, 'no pull for an existing container');
+    }
+
+    $out = `$dozo -A -L -I alpine true 2>/dev/null`;
+    like($calls->(), qr/^pull alpine\n/m, 'pull for a new live container');
+
+    {
+        # the subtests above leave a .dozorc with -I in the home directory
+        local $ENV{HOME} = $dir;
+        $out = `cd $dir && $dozo -A true 2>&1`;
+        like($out, qr/image.*must be specified/i, 'no image: error');
+        unlike($calls->(), qr/^pull/m, 'no pull without an image');
+    }
+};
+
 done_testing;

@@ -21,6 +21,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
 
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image
+    -A, --auto-pull    pull newer image before running
     -E, --env=#        environment variable to inherit (repeatable)
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
@@ -234,6 +235,17 @@ element: **-E** with the value `MSG=hello world` defines two variables,
     variable is set, use that image. Otherwise, use `tecolicom/xlate`,
     that is, its `latest` tag. See ["DEFAULT IMAGE"](#default-image) section for details
     about the default image.
+
+- **-A**, **--auto-pull**
+
+    Run `docker pull` before running the command, so that a newer image
+    is downloaded when the registry has one.  Nothing is downloaded
+    without this option once the image is on the machine.  When the pull
+    fails, as it does when offline, a warning is shown and the command
+    runs on the local image.
+
+    An existing live container stays as it is, on the image it was created
+    from; use `-KL` to recreate it.
 
 - **-E** _name_\[=_value_\], **--env**=_name_\[=_value_\]
 

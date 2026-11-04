@@ -31,6 +31,7 @@ dozo -I IMAGE [ options ] [ command ... ]
 
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image
+    -A, --auto-pull    pull newer image before running
     -E, --env=#        environment variable to inherit (repeatable)
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
@@ -206,6 +207,16 @@ docker() {
     command docker "$@"
 }
 
+# -A: the command runs on the local image when the pull fails, as it
+# does when offline.  Standard output belongs to the command.
+pull_image() {
+    if [[ $quiet ]]; then
+        docker pull --quiet "$image" > /dev/null
+    else
+        docker pull "$image" >&2
+    fi || warn "cannot pull $image, using the local image"
+}
+
 ##############################################################################
 # Main
 ##############################################################################
@@ -290,6 +301,7 @@ declare -A OPTS=(
     [     dryrun | n   # dry-run mode                    ]=
     [      image | I : # Docker image                    ]=
     [    default | D ! # use default image               ]=
+    [  auto-pull | A   # pull newer image before running ]=
     [        env | E @ # environment variable to inherit ]=
     [  mount-cwd | W   # mount current working directory ]=
     [ mount-home | H   # mount home directory            ]=
@@ -362,6 +374,7 @@ fi
 if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
+        [[ $auto_pull ]] && warn "-A does not change existing container $container, use -K to recreate it"
         container_status=$(docker_status "$id")
         case $container_status in
             created|exited)
@@ -404,6 +417,8 @@ fi
 ##############################################################################
 
 [[ $image ]] || die "Docker image must be specified with -I option"
+
+[[ $auto_pull ]] && pull_image
 
 [[ $mounting ]] && warn "mount $mount_dir to $workdir"
 
@@ -626,6 +641,17 @@ Use the default Docker image. If C<DOZO_DEFAULT_IMAGE> environment
 variable is set, use that image. Otherwise, use C<tecolicom/xlate>,
 that is, its C<latest> tag. See L</DEFAULT IMAGE> section for details
 about the default image.
+
+=item B<-A>, B<--auto-pull>
+
+Run C<docker pull> before running the command, so that a newer image
+is downloaded when the registry has one.  Nothing is downloaded
+without this option once the image is on the machine.  When the pull
+fails, as it does when offline, a warning is shown and the command
+runs on the local image.
+
+An existing live container stays as it is, on the image it was created
+from; use C<-KL> to recreate it.
 
 =item B<-E> I<name>[=I<value>], B<--env>=I<name>[=I<value>]
 
