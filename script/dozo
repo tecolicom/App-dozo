@@ -46,6 +46,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -K, --kill         kill and remove existing container
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
+    -S, --status       show live containers and derived images
 
 =head1 VERSION
 
@@ -342,7 +343,8 @@ with_image() {
         tag=dozo/$base:$part-$value
         # one inspect finds the stage and gives the ID for the next parent
         if ! parent_id=$(image_id "$tag"); then
-            [[ $check ]] && return 1
+            # -c: run_image tells the stage which is missing
+            [[ $check ]] && { run_image=$tag; return 1; }
             feature_build "$from" "$tag" "$n" "$path" "$arg"
             # dryrun: the stage was only shown, the tag stands for its ID
             parent_id=$(image_id "$tag") || { [[ $dryrun ]] && parent_id=$tag; } \
@@ -398,11 +400,14 @@ declare -a rcpath=()
 [[ $top_dir && $top_dir != "$cwd" && $top_dir != "$HOME" ]] && rcpath+=("$top_dir")
 rcpath+=(.)
 
-# Collect options from .dozorc files
-declare -a rc_opts=()
+# Collect options from .dozorc files; rc_files and rc_counts keep the
+# file and the number of words of each, to tell where an option is from
+declare -a rc_opts=() rc_files=() rc_counts=()
 for dir in "${rcpath[@]}"; do
     rc="$dir/.dozorc"
     [[ -r $rc ]] || continue
+    rc_files+=("$( [[ $dir == . ]] && echo "$cwd" || echo "$dir" )/.dozorc")
+    rc_n=${#rc_opts[@]}
     warn "reading $rc"
     lineno=0
     while IFS= read -r line || [[ $line ]]; do
@@ -414,6 +419,7 @@ for dir in "${rcpath[@]}"; do
             rc_opts+=("$arg")
         done < <(xargs printf '%s\0' <<< "$line")
     done < "$rc"
+    rc_counts+=($(( ${#rc_opts[@]} - rc_n )))
 done
 
 ##############################################################################
@@ -427,8 +433,13 @@ Usage: $myname [ options ] [ command ... ]
 END
 
 default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; image_set; }
+# image_from: where -I or -D is given, a .dozorc or "command line"
 # image_given: -I or -D is on the command line, not only in .dozorc
-image_set() { image_given=$in_cmdline; }
+image_set() {
+    image_from=$in_from image_given=
+    [[ $in_from == "command line" ]] && image_given=1
+    return 0
+}
 
 declare -A OPTS=(
     [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0 [&DELIM]=,
@@ -456,6 +467,7 @@ declare -A OPTS=(
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
     [       with | F @ # add features to the image        ]=
+    [     status | S   # show the status, change nothing ]=
 )
 
 ##############################################################################
@@ -465,17 +477,23 @@ declare -A OPTS=(
 # getoptlong.sh is loaded unless dozo --bundle has embedded it; "-"
 # keeps the arguments of dozo away from it meanwhile
 declare -F getoptlong >/dev/null || . getoptlong.sh -
-# .dozorc first, then the command line, to tell where the image is from
-args=("$@") in_cmdline= image_given=
+# Each .dozorc, then the command line, to tell where the image is from
+args=("$@") in_from= image_from= image_given= rc_stop=
 getoptlong init OPTS && getoptlong callback image image_set
-# "getoptlong set" takes the rest from the positional parameters
-set -- "${rc_opts[@]}"
-getoptlong parse "$@" && eval "$(getoptlong set)"
-if (( $# > 0 )); then
+rc_i=0
+for rc_k in "${!rc_files[@]}"; do
+    in_from=${rc_files[rc_k]}
+    # "getoptlong set" takes the rest from the positional parameters
+    set -- "${rc_opts[@]:rc_i:rc_counts[rc_k]}"
+    (( rc_i += rc_counts[rc_k] )) || :
+    getoptlong parse "$@" && eval "$(getoptlong set)"
+    if (( $# > 0 )); then rc_stop=1; break; fi
+done
+if [[ $rc_stop ]]; then
     # a word in .dozorc ends the options: the rest is the command
-    set -- "$@" "${args[@]}"
+    set -- "$@" "${rc_opts[@]:rc_i}" "${args[@]}"
 else
-    in_cmdline=1
+    in_from="command line"
     set -- "${args[@]}"
     getoptlong parse "$@" && eval "$(getoptlong set)"
 fi
@@ -547,14 +565,28 @@ container_workdir="${workdir}${relative:+/${relative}}"
 # the same directory
 live_mount=$(cd "${mount_dir:-$cwd}" 2>/dev/null && pwd -P) || live_mount=${mount_dir:-$cwd}
 name_given=$name
+
+# -S: the errors of finding the container are told in the status
+status_notes=()
+live_fail() {
+    [[ $status ]] || die "$@"
+    status_notes+=("$*")
+    return 1
+}
+if [[ $status ]]; then
+    (( $# == 0 )) || die "--status takes no command"
+    command docker ps -a -q > /dev/null || die "cannot ask docker"
+fi
+
 # An image in .dozorc is a default: the container of this directory is
 # used before it, but not before -I or -D on the command line
-if [[ ($live || $kill) && ! ($image && $image_given) && ! $name ]]; then
-    found=()
+# (-S shows what -L would do)
+found=()
+if [[ ($live || $kill || $status) && ! ($image && $image_given) && ! $name ]]; then
     while IFS= read -r _n; do [[ $_n ]] && found+=("$_n"); done < <(
         command docker ps -a --filter "label=dozo.mount=$live_mount" --format '{{.Names}}')
     if (( ${#found[@]} > 1 )); then
-        die "containers for $live_mount: ${found[*]}; choose one with -I or -N"
+        live_fail "containers for $live_mount: ${found[*]}; choose one with -I or -N" || :
     fi
     if (( ${#found[@]} == 1 )); then
         name=${found[0]} name_given=$name image=
@@ -562,7 +594,7 @@ if [[ ($live || $kill) && ! ($image && $image_given) && ! $name ]]; then
         if [[ $kill && $live ]]; then
             image=$(command docker inspect \
                         --format '{{index .Config.Labels "dozo.image"}}' "$name") || image=
-            [[ $image ]] || die "the image of container $name is unknown; give it with -I"
+            [[ $image ]] || live_fail "the image of container $name is unknown; give it with -I" || :
         fi
     fi
 fi
@@ -573,8 +605,100 @@ live_check_mount() {
     local mount
     mount=$(command docker inspect --format '{{index .Config.Labels "dozo.mount"}}' "$1") || return 0
     [[ ! $mount || $mount == "$live_mount" ]] \
-        || die "container $container is for $mount, not $live_mount; give another name with -N"
+        || live_fail "container $container is for $mount, not $live_mount; give another name with -N"
 }
+
+##############################################################################
+# Status (-S)
+##############################################################################
+
+# status_line LABEL TEXT
+status_line() { printf '  %-10s %s\n' "$1" "$2"; }
+
+# What -L (and -K, -A, --with) would do here, and why
+status_here() {
+    local id= cstatus= how shown=$image from=$image_from note check kl=
+    [[ $kill && $live ]] && kl=1
+    echo "here: $live_mount"
+    if (( ${#found[@]} == 1 )); then
+        how="found by label"
+        if [[ ! $kl ]]; then
+            shown=$(command docker inspect \
+                        --format '{{index .Config.Labels "dozo.image"}}' "$name") || shown=
+        fi
+        from="label of $name"
+    elif [[ $name ]]; then
+        how="by name (-N)"
+    elif [[ $image_given ]]; then
+        how="by name (from -I)"
+    else
+        how="by name (from .dozorc)"
+    fi
+    if [[ $shown ]]; then
+        status_line image "$shown ($from)"
+    else
+        status_line image "none"
+    fi
+    if (( ${#found[@]} > 1 )); then
+        status_line container "several containers: ${found[*]}"
+    else
+        container=$(container_name)
+        if id=$(docker_find "$container"); then
+            live_check_mount "$id" || :
+            cstatus=$(docker_status "$id") || cstatus=unknown
+            status_line container "$container, $cstatus ($how)"
+        elif [[ $image ]]; then
+            status_line container "$container, none: would create from $image"
+        else
+            status_line container "no live container for $live_mount; an image must be specified with -I"
+        fi
+    fi
+    # --with: the image with the features, on the image it would be made from
+    if (( ${#with_names[@]} > 0 )); then
+        check=$( (
+            image=$shown run_image=
+            if [[ ! $image ]]; then echo "the image is not decided"
+            elif with_image -c; then echo "$run_image (exists)"
+            elif [[ $run_image ]]; then echo "$run_image, not built yet: made when used"
+            else echo "$image is not here yet: made when used"
+            fi
+        ) 2>&1 ) || :
+        status_line --with "$(IFS=,; echo "${with_names[*]}"): ${check#"$myname: "}"
+    fi
+    if [[ $id ]]; then
+        if [[ $kill ]]; then
+            status_line -K "would remove $container"
+            if [[ $live ]]; then
+                if [[ $image ]]; then status_line '' "then create from $image"
+                else status_line '' "then no live container for $live_mount; an image must be specified with -I"
+                fi
+            fi
+            [[ $auto_pull && $live && $image ]] && status_line -A "would pull $image"
+        else
+            [[ $auto_pull ]] && status_notes+=("-A does not change existing container $container, use -K to recreate it")
+            if (( ${#with_names[@]} > 0 )); then
+                if ! ( image=$shown; with_image -c > /dev/null 2>&1 &&
+                       [[ $(command docker inspect --format '{{.Image}}' "$id") == $(image_id "$run_image") ]] ); then
+                    status_notes+=("--with does not change existing container $container, use -K to recreate it")
+                fi
+            elif [[ $image && ! $auto_pull ]]; then
+                if [[ $(command docker inspect --format '{{.Image}}' "$id") != $(image_id "$image") ]]; then
+                    status_notes+=("existing container $container is not made from $image, use -K to recreate it")
+                fi
+            fi
+        fi
+    else
+        [[ $kill ]] && status_line -K "nothing to remove"
+        [[ $auto_pull && $image ]] && status_line -A "would pull $image"
+    fi
+    for note in "${status_notes[@]}"; do status_line note "$note"; done
+}
+
+status_main() {
+    status_here
+}
+
+[[ $status ]] && { status_main; exit 0; }
 
 ##############################################################################
 # Kill container
