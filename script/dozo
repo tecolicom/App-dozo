@@ -522,12 +522,42 @@ fi
 container_workdir="${workdir}${relative:+/${relative}}"
 
 ##############################################################################
+# Find the live container of this directory
+##############################################################################
+
+# A live container has the label dozo.mount of the directory mounted.
+# Without an image and a name, -L and -K use the container of this
+# directory.  A name made from -I must not be of another directory:
+# the container would run the command on the files of that directory.
+live_mount=${mount_dir:-$cwd}
+name_given=$name
+if [[ ($live || $kill) && ! $image && ! $name ]]; then
+    found=()
+    while IFS= read -r _n; do [[ $_n ]] && found+=("$_n"); done < <(
+        command docker ps -a --filter "label=dozo.mount=$live_mount" --format '{{.Names}}')
+    if (( ${#found[@]} > 1 )); then
+        die "containers for $live_mount: ${found[*]}; choose one with -I or -N"
+    fi
+    (( ${#found[@]} == 1 )) && name=${found[0]} name_given=$name
+fi
+
+# die if the container ID is of another directory
+live_check_mount() {
+    [[ $name_given ]] && return 0
+    local mount
+    mount=$(command docker inspect --format '{{index .Config.Labels "dozo.mount"}}' "$1") || return 0
+    [[ ! $mount || $mount == "$live_mount" ]] \
+        || die "container $container is for $mount, not $live_mount; give another name with -N"
+}
+
+##############################################################################
 # Kill container
 ##############################################################################
 
 if [[ $kill ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
+        live_check_mount "$id"
         docker rm -f "$container" | sed -e "s/\$/ ($id) is removed/"
     fi
     [[ $live ]] || exit 0
@@ -553,13 +583,14 @@ live_exec() {
 if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
+        live_check_mount "$id"
         [[ $auto_pull ]] && warn "-A does not change existing container $container, use -K to recreate it"
         if (( ${#with_names[@]} > 0 )); then
             if ! with_image -c || [[ $(command docker inspect --format '{{.Image}}' "$id") \
                                    != $(image_id "$run_image") ]]; then
                 warn "--with does not change existing container $container, use -K to recreate it"
             fi
-        elif [[ ! $auto_pull ]]; then
+        elif [[ $image && ! $auto_pull ]]; then
             # the container name does not tell the tag or the owner of the image
             if [[ $(command docker inspect --format '{{.Image}}' "$id") \
                   != $(image_id "$image") ]]; then
@@ -641,7 +672,8 @@ else
     dockopt+=("${tty_opts[@]}")
 fi
 [[ ! $live       ]] && dockopt+=(--rm)
-[[   $live       ]] && dockopt+=(--name "$container")
+[[   $live       ]] && dockopt+=(--name "$container"
+                         --label "dozo.mount=$live_mount" --label "dozo.version=$my_version")
 [[ -e $localtime ]] && dockopt+=(-v $localtime:$localtime:ro)
 [[ ! $unmount    ]] && dockopt+=(
         -v "${mount_dir:-$cwd}:${workdir}:${mount_mode}"
@@ -1029,9 +1061,33 @@ You can override the auto-generated name using the C<-N> option:
 
     dozo -I tecolicom/xlate -L -N mycontainer
 
+Only the last part of the mounted directory is in the name either, so
+F</a/project> and F</b/project> give the same name.  A live container
+has the label C<dozo.mount> with the full path of the mounted
+directory (and C<dozo.version> with the version of B<dozo> that made
+it).  If the container found by a name made from B<-I> is of another
+directory, B<dozo> stops instead of running the command on the files
+of that directory; give another name with B<-N>.  A name given by
+B<-N> is not checked, and nor is a container made by an older
+B<dozo>, which has no label.
+
 =head2 Managing Live Containers
 
 =over 4
+
+=item B<Use the container of this directory>
+
+    dozo -I myimage -L          # start working
+    dozo -L                     # later: connect to the same container
+    dozo -L make test           # run a command in it
+    dozo -K                     # remove it
+
+Without B<-I> (nor B<-D> or an image in F<.dozorc>) and B<-N>,
+B<-L> and B<-K> use the container made for the mounted directory,
+found by its C<dozo.mount> label.  In a git repository this is the
+top directory, so the same container is used from any subdirectory.
+If there are several of them (made from different images), B<dozo>
+lists them; choose one with B<-I> or B<-N>.
 
 =item B<Attach to existing container>
 

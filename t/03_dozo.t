@@ -192,8 +192,13 @@ case $1 in
     pull)    echo pulled
              [[ ! $STUB_PULL_ADDS ]] || echo "$2" >> "$STUB_IMAGES"
              [[ ! $STUB_PULL_FAILS ]] ;;
-    ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
+    ps)      if [[ " $* " == *" --format "* ]]; then
+                 for n in $STUB_LABELED; do echo "$n"; done
+             else
+                 [[ ! $STUB_CONTAINER ]] || echo abc123
+             fi ;;
     inspect) if [[ $2 == --format && $3 == '{{.Image}}' ]]; then echo "$STUB_CONTAINER_IMAGE"
+             elif [[ $3 == *dozo.mount* ]]; then echo "$STUB_CONTAINER_MOUNT"
              else echo running; fi ;;
     image)   if [[ $STUB_IMAGES ]]; then
                  grep -qxF -- "${@: -1}" "$STUB_IMAGES" 2>/dev/null || exit 1
@@ -701,6 +706,85 @@ subtest '-L and -I' => sub {
         is(() = $out =~ /-K/g, 1, 'with -A: one notice');
     }
     $calls->();
+};
+
+subtest '-L finds the container by directory' => sub {
+    my $dir = Cwd::realpath(tempdir(CLEANUP => 1));
+    my $log = "$dir/log";
+    docker_stub($dir);
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    local $ENV{HOME} = $dir;
+    my $work = "$dir/proj";
+    mkdir $work or die;
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+    my $dozo_in = sub { scalar `cd $work && $dozo @_` };
+
+    my $out = $dozo_in->('-L -I alpine echo hi 2>/dev/null');
+    my $l = $calls->();
+    like($l, qr/^run .*--label dozo\.mount=\Q$work\E /m, 'created with the mount label');
+    like($l, qr/^run .*--label dozo\.version=\d[\d.]* /m, 'created with the version label');
+
+    $out = $dozo_in->('-I alpine echo hi 2>/dev/null');
+    unlike($calls->(), qr/--label dozo\./, 'no label without -L');
+
+    local $ENV{STUB_CONTAINER} = 1;
+    {
+        local $ENV{STUB_LABELED} = 'alpine.proj';
+        $out = $dozo_in->('-L echo hi 2>/dev/null');
+        is($?, 0, 'no -I: exit status');
+        is($out, "execed\n", 'no -I: the container of the directory is used');
+        $l = $calls->();
+        like($l, qr/^ps -a --filter label=dozo\.mount=\Q$work\E /m, 'no -I: looked up by the label');
+        like($l, qr/^exec .* abc123 echo hi$/m, 'no -I: exec in it');
+
+        $out = $dozo_in->('-K 2>/dev/null');
+        like($calls->(), qr/^rm -f alpine\.proj$/m, '-K without -I removes the container of the directory');
+
+        $out = $dozo_in->('-L -I alpine echo hi 2>/dev/null');
+        unlike($calls->(), qr/--filter label=/, 'with -I: no lookup');
+    }
+    {
+        local $ENV{STUB_LABELED} = 'alpine.proj debian.proj';
+        my $err = $dozo_in->('-L echo hi 2>&1 >/dev/null');
+        isnt($?, 0, 'several containers: error');
+        like($err, qr/alpine\.proj.*debian\.proj/, 'several containers: they are listed');
+        unlike($calls->(), qr/^exec/m, 'several containers: nothing executed');
+    }
+    {
+        local $ENV{STUB_LABELED} = '';
+        local $ENV{STUB_CONTAINER} = '';
+        my $err = $dozo_in->('-L echo hi 2>&1 >/dev/null');
+        like($err, qr/must be specified/, 'no container: the image is required as before');
+        $calls->();
+    }
+    {
+        local $ENV{STUB_CONTAINER_MOUNT} = '/other/proj';
+        my $err = $dozo_in->('-L -I alpine echo hi 2>&1 >/dev/null');
+        isnt($?, 0, 'container of another directory: error');
+        like($err, qr{/other/proj.*-N}s, 'container of another directory: tells -N');
+        unlike($calls->(), qr/^exec/m, 'container of another directory: not used');
+
+        $err = $dozo_in->('-K -I alpine 2>&1 >/dev/null');
+        isnt($?, 0, 'container of another directory: -K is an error');
+        unlike($calls->(), qr/^rm /m, 'container of another directory: not removed');
+
+        $out = $dozo_in->('-L -I alpine -N alpine.proj echo hi 2>/dev/null');
+        is($out, "execed\n", 'with -N: not checked');
+        $calls->();
+    }
+    {
+        local $ENV{STUB_CONTAINER_MOUNT} = '';
+        $out = $dozo_in->('-L -I alpine echo hi 2>/dev/null');
+        is($out, "execed\n", 'container without the label: used as before');
+        $calls->();
+    }
 };
 
 subtest 'list options' => sub {

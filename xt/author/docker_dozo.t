@@ -194,6 +194,39 @@ SKIP: {
         $out = `$dozo -I dozo-test-user:latest -B --with asroot id -un 2>/dev/null`;
         is($out, "nobody\n", 'USER of the base image is restored');
     };
+
+    subtest 'live container of the directory' => sub {
+        use Cwd ();
+        my $top = Cwd::realpath(tempdir(CLEANUP => 1));
+        my $dir = "dozo-test-proj-$$";      # the container name ends with it
+        my ($a, $b) = ("$top/a/$dir", "$top/b/$dir");
+        system('mkdir', '-p', "$a/sub", $b) == 0 or die;
+        system("cd $a && git init -q") == 0 or die;
+        my $container = "alpine.$dir";
+        my $cleanup = sub {
+            system("docker rm -f $container ${container}-b >/dev/null 2>&1");
+        };
+        $cleanup->();
+        my $guard = Guard->new($cleanup);
+        my $in = sub { my $d = shift; scalar `cd $d && $dozo @_` };
+
+        $in->($a, "-B -L -I alpine:latest touch /work/made-in-a 2>/dev/null");
+        is(`docker inspect --format '{{index .Config.Labels "dozo.mount"}}' $container`,
+           "$a\n", 'the container has the mount label');
+
+        my $out = $in->("$a/sub", '-B -L pwd 2>/dev/null');
+        is($out, "/work/sub\n", 'no -I: the container of the repository, from a subdirectory');
+
+        my $err = $in->($b, '-B -L -I alpine:latest ls /work 2>&1 >/dev/null');
+        isnt($?, 0, 'same name in another directory: error');
+        like($err, qr/is for \Q$a\E/, 'same name in another directory: tells which');
+
+        $out = $in->($b, "-B -L -I alpine:latest -N ${container}-b ls /work 2>/dev/null");
+        is($out, '', 'another name with -N: the directory of its own');
+
+        $in->("$a/sub", '-K 2>/dev/null');
+        is(`docker ps -a -q --filter name=^/$container\$`, '', 'no -I: -K removes the container');
+    };
 }
 
 done_testing;
