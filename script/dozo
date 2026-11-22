@@ -32,6 +32,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image
     -A, --auto-pull    pull newer image before running
+        --with=#       add features to the image (repeatable)
     -E, --env=#        environment variable to inherit (repeatable)
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
@@ -218,6 +219,106 @@ pull_image() {
 }
 
 ##############################################################################
+# --with: features
+##############################################################################
+
+# Path of the feature NAME (a file, or a directory with a Dockerfile)
+feature_path() {
+    local n=$1
+    [[ $n == */* || $n == .* ]] && die "invalid feature name: $n"
+    [[ -e $feature_dir/$n ]] || die "feature $n not found in $feature_dir"
+    echo "$feature_dir/$n"
+}
+
+# cksum of the content of a feature: the file, or the names and
+# contents of all files in the directory
+feature_sum() {
+    local p=$1 f
+    if [[ -d $p ]]; then
+        (
+            cd "$p" || exit 1
+            find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+                printf '%s\n' "$f"
+                cat "$f"
+            done
+        ) | cksum
+    else
+        cksum < "$p"
+    fi
+}
+
+image_id() { command docker image inspect --format '{{.Id}}' "$1" 2>/dev/null; }
+
+# Find the user and the home directory of the base image, once
+feature_env() {
+    [[ ${build_home:-} ]] && return
+    orig_user=$(command docker image inspect --format '{{.Config.User}}' "$image" 2>/dev/null) || orig_user=
+    build_user=${orig_user:-root}
+    build_home=$(command docker run --rm --entrypoint sh \
+                     ${orig_user:+--user "$orig_user"} "$image" -c 'echo "$HOME"') \
+        || die "cannot find the home directory of $image (sh is required)"
+    [[ $build_home ]] || die "cannot find the home directory of $image"
+}
+
+# feature_build PARENT_ID TAG NAME PATH
+feature_build() {
+    local parent=$1 tag=$2 name=$3 path=$4 src args
+    src=$path
+    [[ -d $path ]] && src=$path/Dockerfile
+    [[ -r $src ]] || die "cannot read $src"
+    feature_env
+    args=(build --label "dozo.base=$image" --label "dozo.with=${with_chain:-$name}" -t "$tag")
+    if [[ -d $path ]]; then args+=(-f - "$path"); else args+=(-); fi
+    {
+        printf 'FROM %s\nARG DOZO_USER=%s\nARG DOZO_HOME=%s\n' \
+               "$parent" "$build_user" "$build_home"
+        printf '%s\n' "$(cat "$src")"
+        if [[ $orig_user ]]; then printf 'USER %s\n' "$orig_user"; fi
+    } | if [[ $quiet ]]; then
+        docker "${args[@]:0:1}" --quiet "${args[@]:1}" > /dev/null
+    else
+        docker "${args[@]}" >&2
+    fi || die "cannot build feature $name"
+}
+
+# Make the image with the features on $image, and set run_image to it.
+# -c: do not build, return 1 when an image is missing.
+with_image() {
+    local check= n i path parent_id tag sum base part value
+    local paths=()
+    [[ ${1:-} == -c ]] && check=1
+    for n in "${with_names[@]}"; do
+        path=$(feature_path "$n") || exit 1
+        paths+=("$path")
+    done
+    base=$myname
+    [[ $image =~ (.*/)?([-_.a-zA-Z0-9]+) ]] && base=${BASH_REMATCH[2]}
+    if ! parent_id=$(image_id "$image"); then
+        [[ $check ]] && return 1
+        pull_image
+        parent_id=$(image_id "$image") || die "cannot find image $image"
+    fi
+    with_chain=
+    for i in "${!with_names[@]}"; do
+        n=${with_names[i]} path=${paths[i]}
+        with_chain+=${with_chain:+,}$n
+        sum=$(feature_sum "$path") || exit 1
+        sum=$(printf '%s\n%s\n' "$parent_id" "$sum" | cksum)
+        value=${sum%% *}
+        part=${n//[^A-Za-z0-9_.-]/_}
+        [[ $part == [-.]* ]] && part=_${part:1}
+        (( ${#part} + 1 + ${#value} > 128 )) && part=${part:0:127-${#value}}
+        tag=dozo/$base:$part-$value
+        if ! image_id "$tag" > /dev/null; then
+            [[ $check ]] && return 1
+            feature_build "$parent_id" "$tag" "$n" "$path"
+        fi
+        parent_id=$(image_id "$tag") || die "cannot find image $tag"
+        run_image=$tag
+    done
+}
+
+##############################################################################
 # Main
 ##############################################################################
 
@@ -239,6 +340,8 @@ cwd=$(pwd)
 default_image=tecolicom/xlate
 export DOCKER_CLI_HINTS=false
 workdir=/work
+# decided from the host's HOME, before -H can change anything
+feature_dir=${XDG_CONFIG_HOME:-$HOME/.config}/dozo/features
 localtime=/etc/localtime
 mount_dir=
 mounting=
@@ -315,6 +418,7 @@ declare -A OPTS=(
     [       kill | K   # kill existing container         ]=
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
+    [       with |   @ # add features to the image        ]=
 )
 
 ##############################################################################
@@ -330,6 +434,13 @@ getoptlong init OPTS && getoptlong parse "$@" && eval "$(getoptlong set)"
 # Flush buffered warnings
 warn() { [[ $quiet ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
+
+# --with: names separated by commas, in the order given
+with_names=()
+for _w in "${with[@]}"; do
+    IFS=, read -ra _parts <<< "$_w"
+    for _p in "${_parts[@]}"; do [[ $_p ]] && with_names+=("$_p"); done
+done
 
 # Apply options
 [[ $mount_cwd ]] && mount_dir="$cwd"
@@ -426,6 +537,10 @@ fi
 
 [[ $auto_pull ]] && pull_image
 
+# --with: the image to run is the one with the features added
+run_image=$image
+if (( ${#with_names[@]} > 0 )); then with_image; fi
+
 [[ $mounting ]] && warn "mount $mount_dir to $workdir"
 
 if [[ ${DISPLAY:-} ]]; then
@@ -442,7 +557,7 @@ hostname=${hostname%%:*}
 detach=
 if [[ $live ]] && (( $# > 0 )); then
     entrypoint=$(command docker image inspect \
-                     --format '{{json .Config.Entrypoint}}' "$image" 2>/dev/null)
+                     --format '{{json .Config.Entrypoint}}' "$run_image" 2>/dev/null)
     [[ $entrypoint == @(|null|\[\]) ]] && detach=1
 fi
 
@@ -492,15 +607,15 @@ fi
 if [[ $detach ]]; then
     # standard output belongs to the command, not to the container ID
     if [[ $dryrun ]]; then
-        docker run "${dockopt[@]}" "${image}"
+        docker run "${dockopt[@]}" "${run_image}"
     else
-        docker run "${dockopt[@]}" "${image}" > /dev/null || exit 1
+        docker run "${dockopt[@]}" "${run_image}" > /dev/null || exit 1
     fi
     live_exec "$container" "$@"
     exit
 fi
 
-docker run "${dockopt[@]}" "${image}" "$@"
+docker run "${dockopt[@]}" "${run_image}" "$@"
 exit
 
 : <<'=cut'

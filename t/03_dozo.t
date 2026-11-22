@@ -189,11 +189,33 @@ sub docker_stub {
 #!/bin/bash
 echo "$*" >> "$STUB_LOG"
 case $1 in
-    pull)    echo pulled; [[ ! $STUB_PULL_FAILS ]] ;;
+    pull)    echo pulled
+             [[ ! $STUB_PULL_ADDS ]] || echo "$2" >> "$STUB_IMAGES"
+             [[ ! $STUB_PULL_FAILS ]] ;;
     ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
     inspect) echo running ;;
-    image)   echo "${STUB_ENTRYPOINT:-null}" ;;
-    run)     [[ ! $STUB_RUN_FAILS ]] || exit 1; echo ran ;;
+    image)   if [[ $STUB_IMAGES ]]; then
+                 grep -qxF -- "${@: -1}" "$STUB_IMAGES" 2>/dev/null || exit 1
+                 case $4 in
+                     '{{.Id}}')                echo "sha256:${@: -1}" ;;
+                     '{{.Config.User}}')       echo "$STUB_USER" ;;
+                     '{{json .Config.Entrypoint}}') echo "${STUB_ENTRYPOINT:-null}" ;;
+                 esac
+             else
+                 echo "${STUB_ENTRYPOINT:-null}"
+             fi ;;
+    build)   n=1
+             while [[ -e $STUB_LOG.dockerfile.$n ]]; do n=$((n+1)); done
+             cat > "$STUB_LOG.dockerfile.$n"
+             [[ ! $STUB_BUILD_FAILS ]] || exit 1
+             while (( $# )); do
+                 [[ $1 == -t ]] && echo "$2" >> "$STUB_IMAGES"
+                 shift
+             done ;;
+    run)     if [[ " $* " == *" --entrypoint sh "* ]]; then
+                 echo "${STUB_HOME:-/root}"; exit 0
+             fi
+             [[ ! $STUB_RUN_FAILS ]] || exit 1; echo ran ;;
     exec)    echo execed; exit ${STUB_EXEC_STATUS:-0} ;;
 esac
 STUB
@@ -322,6 +344,118 @@ subtest '-L creates a container, then execs the command' => sub {
         like($calls->(), qr{^exec .*--workdir /work/sub\b.* pwd$}m,
              'from a subdirectory: exec in it');
     }
+};
+
+subtest '--with' => sub {
+    my $dir = Cwd::realpath(tempdir(CLEANUP => 1));
+    my $log = "$dir/log";
+    docker_stub($dir);
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    local $ENV{HOME} = $dir;
+    local $ENV{XDG_CONFIG_HOME} = "$dir/config";
+    local $ENV{STUB_IMAGES} = "$dir/images";
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+    my $spit = sub {
+        my ($file, $text) = @_;
+        (my $d = $file) =~ s{/[^/]*$}{};
+        system('mkdir', '-p', $d);
+        open my $o, '>', $file or die "$file: $!";
+        print $o $text;
+        close $o;
+    };
+    my $dockerfile = sub {
+        open my $in, '<', "$log.dockerfile.$_[0]" or return '';
+        local $/;
+        scalar <$in>;
+    };
+    my $images = sub { $spit->("$dir/images", join '', map "$_\n", @_) };
+
+    my $fd = "$dir/config/dozo/features";
+    $spit->("$fd/locale", "ENV LANG=C.UTF-8\n");
+    $spit->("$fd/home/Dockerfile", "COPY . \$DOZO_HOME/\n");
+    $spit->("$fd/home/.inputrc", "x\n");
+    $images->('alpine');
+
+    my $out = `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
+    is($?, 0, 'exit status');
+    is($out, "ran\n", 'only the output of the command is on stdout');
+    my $l = $calls->();
+    my @build = $l =~ /^build .*$/mg;
+    is(scalar @build, 2, 'two stages are built');
+    like($build[0], qr/-t dozo\/alpine:locale-\d+ -$/, 'file feature: no context');
+    like($build[1], qr/-t dozo\/alpine:home-\d+ -f - \Q$fd\E\/home$/, 'directory feature: context');
+    like($l, qr/^run .* dozo\/alpine:home-\d+ echo hi$/m, 'run the last stage');
+    like($dockerfile->(1), qr/\AFROM sha256:alpine\nARG DOZO_USER=root\nARG DOZO_HOME=\/root\nENV LANG=C.UTF-8\n\z/, 'generated Dockerfile');
+
+    `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
+    unlike($calls->(), qr/^build/m, 'second time: nothing is built');
+
+    `$dozo -I alpine --with locale --with home echo hi 2>/dev/null`;
+    unlike($calls->(), qr/^build/m, 'repeated --with is the same as a comma list');
+
+    $spit->("$fd/home/.inputrc", "changed\n");
+    `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
+    @build = $calls->() =~ /^build .*$/mg;
+    is(scalar @build, 1, 'changing a feature rebuilds from that stage');
+    like($build[0], qr/-t dozo\/alpine:home-/, 'only that stage');
+
+    {
+        local $ENV{STUB_USER} = '1000:1000';
+        $spit->("$fd/other", "RUN true\n");
+        `$dozo -I alpine --with other echo hi 2>/dev/null`;
+        $calls->();
+        my $df = $dockerfile->(4);
+        like($df, qr/^ARG DOZO_USER=1000:1000$/m, 'USER is restored as given: ARG');
+        like($df, qr/\nUSER 1000:1000\n\z/, 'USER is restored as given: last line');
+    }
+
+    `$dozo -I alpine -H --with locale echo hi 2>/dev/null`;
+    is($?, 0, '-H does not move the feature directory');
+    $calls->();
+
+    {
+        $images->();
+        my $err = `$dozo -I alpine --with locale echo hi 2>&1 >/dev/null`;
+        isnt($?, 0, 'missing base image that cannot be pulled');
+        like($err, qr/cannot find image/, 'with a message');
+        unlike($calls->(), qr/^run /m, 'and nothing is run');
+
+        local $ENV{STUB_PULL_ADDS} = 1;
+        `$dozo -I alpine --with locale echo hi 2>/dev/null`;
+        is($?, 0, 'missing base image is pulled');
+        like($calls->(), qr/^pull alpine\n(?:.*\n)*?build .*\n(?:.*\n)*?run .* echo hi$/m,
+             'pull, then build and run');
+    }
+
+    {
+        my $err = `$dozo -I alpine --with nosuch echo hi 2>&1 >/dev/null`;
+        isnt($?, 0, 'unknown feature');
+        like($err, qr/\Q$fd\E/, 'tells the feature directory');
+        $calls->();
+        for my $n ('../x', 'a/b') {
+            `$dozo -I alpine --with $n echo hi 2>/dev/null`;
+            isnt($?, 0, "feature name with a slash: $n");
+            unlike($calls->(), qr/^build/m, 'nothing is built');
+        }
+    }
+
+    {
+        local $ENV{STUB_BUILD_FAILS} = 1;
+        $spit->("$fd/new", "RUN true\n");
+        `$dozo -I alpine --with new echo hi 2>/dev/null`;
+        isnt($?, 0, 'build failure');
+        unlike($calls->(), qr/^run .* echo hi$/m, 'the command is not run');
+    }
+
+    `$dozo -I alpine echo hi 2>/dev/null`;
+    unlike($calls->(), qr/^image inspect --format \{\{\.Id/m, 'no --with: no image inspect');
 };
 
 done_testing;
