@@ -47,3 +47,12 @@ Minilla の share として `share/features/NAME` を配布し、ユーザーの
   吸収しない」としたが、同梱して誰でも使えるようにするなら、apt / apk / dnf を
   判別して分岐させる必要がある。
 - locale 以外に同梱する候補。
+
+## 追記: locale を share に同梱（自動では探さない）
+
+- `share/features/locale` を同梱した。dozo は share を探さず、利用者が
+  `~/.config/dozo/features/` にコピーして使う（POD の FEATURES の Examples）。
+  上の「perl なしで share の場所を決められない」問題は、探さないことで避けた。
+- locale は、イメージにロケールがすでにあるとき、または `locale-gen` も `apt-get` も
+  ないとき（alpine など）は何もしない。`~/.dozorc` にいつも書いておける。
+- 自動で探す機能は、引き続き将来の拡張として残す。

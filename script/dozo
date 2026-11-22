@@ -1245,36 +1245,21 @@ F<features/locale>, which makes UTF-8 locales on Debian and Ubuntu
 based images: C<--with locale> makes C<ja_JP.UTF-8>, and
 C<--with locale/ja_JP+en_US> makes C<ja_JP.UTF-8> and
 C<en_US.UTF-8>.  B<dozo> gives C<LANG> of the host to the container,
-so making the locale is enough.
+so making the locale is enough.  It does nothing when the image has
+the locales already, or has neither C<locale-gen> nor C<apt-get>
+(such as alpine), so it can be given always in F<~/.dozorc>:
 
-    USER root
-    ARG DOZO_ARG
-    RUN command -v locale-gen > /dev/null \
-            || { apt-get update; apt-get install -yq locales; } \
-        && IFS=+ && for l in ${DOZO_ARG:-ja_JP}; do \
-               echo "$l.UTF-8 UTF-8" >> /etc/locale.gen; set -- "$@" "$l.UTF-8"; \
-           done \
-        && locale-gen --keep-existing "$@"
+    --with locale
 
-=over 4
+It is included in the distribution, in F<share/features/locale>.
+B<dozo> does not look there: copy it to the feature directory.  For
+an installed distribution (with L<File::ShareDir>):
 
-=item *
+    mkdir -p ~/.config/dozo/features
+    cp "$(perl -MFile::ShareDir=dist_dir -E 'say dist_dir "App-dozo"')"/features/locale \
+       ~/.config/dozo/features/
 
-The F<locales> package is installed only when C<locale-gen> is
-missing.  Upgrading it rebuilds the locale archive from its
-configuration, and an image loses the locales it has made otherwise.
-
-=item *
-
-C<apt-get update> is not checked, because an image may have a third
-party repository that fails.
-
-=item *
-
-Debian's C<locale-gen> ignores its arguments and makes the locales
-listed in F</etc/locale.gen>, so they are written there as well.
-
-=back
+The comments in the file tell how it works.
 
 F<features/home/Dockerfile>, with other files in F<features/home/>:
 

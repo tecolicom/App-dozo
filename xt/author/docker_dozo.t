@@ -12,6 +12,7 @@ package Guard { sub new { my ($c, $cb) = @_; bless { cb => $cb }, $c }
 package main;
 
 my $dozo = File::Spec->rel2abs('script/dozo');
+my $repo = File::Spec->rel2abs('.');
 
 # Use empty temp dir to avoid reading any .dozorc (HOME, git top, cwd)
 my $empty_home = tempdir(CLEANUP => 1);
@@ -193,6 +194,15 @@ SKIP: {
         system("docker build -q -t dozo-test-user:latest $df >/dev/null 2>&1");
         $out = `$dozo -I dozo-test-user:latest -B --with asroot id -un 2>/dev/null`;
         is($out, "nobody\n", 'USER of the base image is restored');
+
+        # the bundled share/features/locale does nothing on alpine
+        my $share = File::Spec->rel2abs('share/features/locale', $repo);
+        ok(-f $share, 'share/features/locale is bundled');
+        system('cp', $share, "$fdir/locale") == 0 or die;
+        # (the build output may be cached by BuildKit: see the result)
+        $out = `$dozo -I $image -B --with locale sh -c 'test -e /etc/locale.gen || echo none' 2>/dev/null`;
+        is($?, 0, 'bundled locale feature: succeeds on alpine');
+        is($out, "none\n", 'bundled locale feature: nothing is done on alpine');
     };
 
     subtest 'live container of the directory' => sub {

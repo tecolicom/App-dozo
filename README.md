@@ -546,24 +546,21 @@ pick a separator and split it with `IFS` in the feature (see
 based images: `--with locale` makes `ja_JP.UTF-8`, and
 `--with locale/ja_JP+en_US` makes `ja_JP.UTF-8` and
 `en_US.UTF-8`.  **dozo** gives `LANG` of the host to the container,
-so making the locale is enough.
+so making the locale is enough.  It does nothing when the image has
+the locales already, or has neither `locale-gen` nor `apt-get`
+(such as alpine), so it can be given always in `~/.dozorc`:
 
-    USER root
-    ARG DOZO_ARG
-    RUN command -v locale-gen > /dev/null \
-            || { apt-get update; apt-get install -yq locales; } \
-        && IFS=+ && for l in ${DOZO_ARG:-ja_JP}; do \
-               echo "$l.UTF-8 UTF-8" >> /etc/locale.gen; set -- "$@" "$l.UTF-8"; \
-           done \
-        && locale-gen --keep-existing "$@"
+    --with locale
 
-- The `locales` package is installed only when `locale-gen` is
-missing.  Upgrading it rebuilds the locale archive from its
-configuration, and an image loses the locales it has made otherwise.
-- `apt-get update` is not checked, because an image may have a third
-party repository that fails.
-- Debian's `locale-gen` ignores its arguments and makes the locales
-listed in `/etc/locale.gen`, so they are written there as well.
+It is included in the distribution, in `share/features/locale`.
+**dozo** does not look there: copy it to the feature directory.  For
+an installed distribution (with [File::ShareDir](https://metacpan.org/pod/File%3A%3AShareDir)):
+
+    mkdir -p ~/.config/dozo/features
+    cp "$(perl -MFile::ShareDir=dist_dir -E 'say dist_dir "App-dozo"')"/features/locale \
+       ~/.config/dozo/features/
+
+The comments in the file tell how it works.
 
 `features/home/Dockerfile`, with other files in `features/home/`:
 
