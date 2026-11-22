@@ -1054,7 +1054,7 @@ A I<feature> is a named piece of Dockerfile that is added to any
 image.  It is a way to bring your usual setup (locale, dot files,
 environment variables, ...) to an image made by someone else:
 
-    dozo -I homebrew/brew --with ja-locale,home make test
+    dozo -I homebrew/brew --with locale,home make test
 
 Features are not bundled with B<dozo>; you write your own.
 
@@ -1131,22 +1131,40 @@ F<features/locale> below):
 
 =head2 Examples
 
-F<features/ja-locale> (for Ubuntu based images; C<apt-get update> is
-not checked, because an image may have a third party repository that
-fails):
-
-    USER root
-    RUN apt-get update; apt-get install -yq locales \
-        && locale-gen ja_JP.UTF-8
-    ENV LANG=ja_JP.UTF-8
-
-F<features/locale>, which takes language names separated by C<+>
-(C<--with locale/ja_JP+en_US>):
+F<features/locale>, which makes UTF-8 locales on Debian and Ubuntu
+based images: C<--with locale> makes C<ja_JP.UTF-8>, and
+C<--with locale/ja_JP+en_US> makes C<ja_JP.UTF-8> and
+C<en_US.UTF-8>.  B<dozo> gives C<LANG> of the host to the container,
+so making the locale is enough.
 
     USER root
     ARG DOZO_ARG
-    RUN apt-get update; apt-get install -yq locales \
-        && IFS=+ && for l in $DOZO_ARG; do locale-gen $l.UTF-8; done
+    RUN command -v locale-gen > /dev/null \
+            || { apt-get update; apt-get install -yq locales; } \
+        && IFS=+ && for l in ${DOZO_ARG:-ja_JP}; do \
+               echo "$l.UTF-8 UTF-8" >> /etc/locale.gen; set -- "$@" "$l.UTF-8"; \
+           done \
+        && locale-gen --keep-existing "$@"
+
+=over 4
+
+=item *
+
+The F<locales> package is installed only when C<locale-gen> is
+missing.  Upgrading it rebuilds the locale archive from its
+configuration, and an image loses the locales it has made otherwise.
+
+=item *
+
+C<apt-get update> is not checked, because an image may have a third
+party repository that fails.
+
+=item *
+
+Debian's C<locale-gen> ignores its arguments and makes the locales
+listed in F</etc/locale.gen>, so they are written there as well.
+
+=back
 
 F<features/home/Dockerfile>, with other files in F<features/home/>:
 
@@ -1177,7 +1195,7 @@ With B<-L>, a new container is made from the derived image, but an
 existing container is not changed.  B<dozo> warns about it when its
 image differs; use B<-K> to recreate it:
 
-    dozo -I homebrew/brew --with ja-locale -KL
+    dozo -I homebrew/brew --with locale -KL
 
 Derived images are not removed automatically.  They have the labels
 C<dozo.base> (the base image) and C<dozo.with> (the features applied
