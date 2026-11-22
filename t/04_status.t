@@ -205,6 +205,41 @@ subtest 'here' => sub {
     }
 };
 
+subtest 'live containers' => sub {
+    unlink "$home/.dozorc";
+    put("$dir/images", "alpine\nalpine:latest\n");
+    my $rows = "$dir/containers";
+    local $ENV{STUB_CONTAINERS} = $rows;
+    local $ENV{STUB_ALL_IDS} = 'id1 id2 id3 id4 id5';
+    put($rows, join '', map { join("\t", @$_) . "\n" }
+        ['/alpine.proj', 'running', 'false', 'sha256:alpine:latest', 'alpine:latest',
+         $work, 'alpine:latest', 'dozo', $work],
+        ['/old.x', 'exited', 'false', 'sha256:b', 'tecolicom/xlate',
+         '', '', 'dozo', '/nonexistent/x'],
+        ['/tmp1', 'running', 'true', 'sha256:a', 'alpine', $work, 'alpine', 'dozo', $work],
+        ['/other', 'running', 'false', 'sha256:c', 'nginx', '', '', '', ''],
+        ['/upd.home', 'exited', 'false', 'sha256:old', 'alpine:latest',
+         $home, 'alpine:latest', 'dozo', $home],
+    );
+    my ($out, $st) = status('-S -I alpine');
+    is($st, 0, 'exit status');
+    like($out, qr/^live containers:\n/m, 'header');
+    like($out, qr/^\* alpine\.proj +running +alpine:latest +~\/proj *$/m, 'this directory: marked');
+    like($out, qr/^  old\.x +exited +tecolicom\/xlate +\/nonexistent\/x +.*gone/m, 'gone');
+    like($out, qr/^  old\.x .*no label/m, 'no label');
+    unlike($out, qr/tmp1/, '--rm: not listed');
+    unlike($out, qr/^..other /m, 'not made by dozo: not listed');
+    like($out, qr/^  upd\.home .*updated/m, 'image updated');
+    like($out, qr/^to clean up:\n(  docker .*\n)*  docker rm old\.x$/m, 'cleanup: gone');
+    unlike($out, qr/docker rm (alpine\.proj|upd\.home)/, 'cleanup: only gone');
+
+    local $ENV{STUB_ALL_IDS} = '';
+    put($rows, '');
+    ($out, $st) = status('-S -I alpine');
+    like($out, qr/^live containers:\n  none$/m, 'none');
+    unlike($out, qr/to clean up/, 'nothing to clean up');
+};
+
 subtest '.dozorc stray word' => sub {
     put("$home/.dozorc", "-I alpine foo\n");
     put("$work/.dozorc", "-E X\n");

@@ -694,8 +694,93 @@ status_here() {
     for note in "${status_notes[@]}"; do status_line note "$note"; done
 }
 
+# split_tab ARRAY LINE: fields separated by tabs, empty ones kept
+split_tab() {
+    local -n _f=$1
+    local _l=$2
+    _f=()
+    while [[ $_l == *$'\t'* ]]; do _f+=("${_l%%$'\t'*}"); _l=${_l#*$'\t'}; done
+    _f+=("$_l")
+}
+
+# status_table HEADER ROW...: columns of tab separated fields, the
+# first field is the mark (* or empty)
+status_table() {
+    local row i w=() f
+    for row in "$@"; do
+        split_tab f "$row"
+        for i in "${!f[@]}"; do (( ${#f[i]} > ${w[i]:-0} )) && w[i]=${#f[i]}; done
+    done
+    for row in "$@"; do
+        split_tab f "$row"
+        printf '%-1s' "${f[0]}"
+        for i in "${!f[@]}"; do
+            (( i )) || continue
+            # one space after the mark, two between the columns
+            printf '%*s%-*s' "$(( i > 1 ? 2 : 1 ))" '' \
+                   "$(( i < ${#f[@]} - 1 ? w[i] : 0 ))" "${f[i]}"
+        done
+        echo
+    done | sed 's/ *$//'
+}
+
+# ~ for the home directory
+status_path() {
+    local p=$1
+    [[ $p == "$HOME" || $p == "$HOME"/* ]] && p="~${p#"$HOME"}"
+    echo "$p"
+}
+
+status_cleanup=()
+
+# dozo's live containers: with the label dozo.mount, or with
+# DOZO_RUNNING_ON_DOCKER (made before the labels); not those of --rm
+status_containers() {
+    local ids=() line f rows=() mark dir phys notes img id
+    local fmt='{{.Name}}	{{.State.Status}}	{{.HostConfig.AutoRemove}}	{{.Image}}	{{.Config.Image}}	{{index .Config.Labels "dozo.mount"}}	{{index .Config.Labels "dozo.image"}}	{{range .Config.Env}}{{if eq . "DOZO_RUNNING_ON_DOCKER=1"}}dozo{{end}}{{end}}	{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}'
+    echo "live containers:"
+    while IFS= read -r line; do [[ $line ]] && ids+=("$line"); done < <(command docker ps -a -q)
+    if (( ${#ids[@]} > 0 )); then
+        while IFS= read -r line; do
+            [[ $line ]] || continue
+            # name status autoremove id image mount-label image-label marker source
+            split_tab f "$line"
+            [[ ${f[2]} == true ]] && continue
+            [[ ${f[5]} || ${f[7]} ]] || continue
+            notes=() mark=
+            dir=${f[5]:-${f[8]}}
+            img=${f[6]:-${f[4]}}
+            [[ ${f[5]} ]] || notes+=("no label")
+            if phys=$(cd "$dir" 2>/dev/null && pwd -P); then
+                [[ $phys == "$live_mount" ]] && mark='*'
+            else
+                notes+=(gone)
+                status_cleanup+=("docker rm ${f[0]#/}")
+            fi
+            [[ ${f[6]} && ${f[4]} != "${f[6]}" ]] && notes+=("with ${f[4]}")
+            if id=$(image_id "${f[4]}") && [[ $id != "${f[3]}" ]]; then
+                notes+=("image updated, -KL to recreate")
+            fi
+            rows+=("$mark	${f[0]#/}	${f[1]}	$img	$(status_path "$dir")	$(IFS=,; echo "${notes[*]}" | sed 's/,/, /g')")
+        done < <(command docker inspect --format "$fmt" "${ids[@]}")
+    fi
+    if (( ${#rows[@]} > 0 )); then
+        status_table "	NAME	STATUS	IMAGE	DIRECTORY	NOTE" "${rows[@]}"
+    else
+        echo "  none"
+    fi
+}
+
 status_main() {
+    local c
     status_here
+    echo
+    status_containers
+    if (( ${#status_cleanup[@]} > 0 )); then
+        echo
+        echo "to clean up:"
+        for c in "${status_cleanup[@]}"; do echo "  $c"; done
+    fi
 }
 
 [[ $status ]] && { status_main; exit 0; }
