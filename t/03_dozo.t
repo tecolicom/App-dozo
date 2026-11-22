@@ -5,6 +5,7 @@ use utf8;
 use Test::More;
 use File::Spec;
 use File::Temp qw(tempdir);
+use Cwd ();
 
 # Skip tests on platforms without bash or with old bash
 BEGIN {
@@ -180,9 +181,9 @@ subtest '--bundle' => sub {
     is(`$bundled --bundle 2>&1 >/dev/null`, '', '--bundle prints nothing on stderr');
 };
 
-subtest '-A' => sub {
-    my $dir = tempdir(CLEANUP => 1);
-    my $log = "$dir/log";
+# Write a docker stub to $dir/docker, which logs its arguments to $STUB_LOG
+sub docker_stub {
+    my $dir = shift;
     open my $fh, '>', "$dir/docker" or die;
     print $fh <<'STUB';
 #!/bin/bash
@@ -191,12 +192,18 @@ case $1 in
     pull)    echo pulled; [[ ! $STUB_PULL_FAILS ]] ;;
     ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
     inspect) echo running ;;
-    run)     echo ran ;;
-    exec)    echo execed ;;
+    run)     [[ ! $STUB_RUN_FAILS ]] || exit 1; echo ran ;;
+    exec)    echo execed; exit ${STUB_EXEC_STATUS:-0} ;;
 esac
 STUB
     close $fh;
     chmod 0755, "$dir/docker" or die;
+}
+
+subtest '-A' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    my $log = "$dir/log";
+    docker_stub($dir);
     local $ENV{PATH} = "$dir:$ENV{PATH}";
     local $ENV{STUB_LOG} = $log;
     my $calls = sub {
@@ -245,6 +252,63 @@ STUB
         $out = `cd $dir && $dozo -A true 2>&1`;
         like($out, qr/image.*must be specified/i, 'no image: error');
         unlike($calls->(), qr/^pull/m, 'no pull without an image');
+    }
+};
+
+subtest '-L creates a container, then execs the command' => sub {
+    # realpath: on macOS, git shows /private/var for the /var tempdir
+    my $dir = Cwd::realpath(tempdir(CLEANUP => 1));
+    my $log = "$dir/log";
+    docker_stub($dir);
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+
+    my $out = `$dozo -L -I alpine echo hi 2>/dev/null`;
+    is($?, 0, 'exit status');
+    is($out, "execed\n", 'only the output of the command is on stdout');
+    my $log1 = $calls->();
+    like($log1, qr/^run .*--detach\b.* alpine$/m, 'run detached without the command');
+    like($log1, qr/^run .*--interactive\b.*--tty\b/m, 'with --interactive --tty');
+    like($log1, qr/^exec .* alpine\.\S+ echo hi$/m, 'then exec the command');
+
+    {
+        local $ENV{STUB_EXEC_STATUS} = 3;
+        `$dozo -L -I alpine false 2>/dev/null`;
+        is($? >> 8, 3, 'exit status of the command');
+        $calls->();
+    }
+
+    {
+        local $ENV{STUB_RUN_FAILS} = 1;
+        `$dozo -L -I alpine echo hi 2>/dev/null`;
+        isnt($?, 0, 'failed run: non-zero exit');
+        unlike($calls->(), qr/^exec/m, 'failed run: no exec');
+    }
+
+    $out = `$dozo -L -I alpine 2>/dev/null`;
+    my $log2 = $calls->();
+    like($log2, qr/^run .* alpine$/m, 'no command: run as before');
+    unlike($log2, qr/--detach/, 'no command: not detached');
+    unlike($log2, qr/^exec/m, 'no command: no exec');
+
+    $out = `$dozo -n -L -I alpine echo hi 2>/dev/null`;
+    like($out, qr/^docker run .*--detach\b.* alpine$/m, 'dryrun shows docker run');
+    like($out, qr/^docker exec .* echo hi$/m, 'dryrun shows docker exec');
+    $calls->();
+
+    {
+        my $sub = "$dir/repo/sub";
+        system("mkdir -p $sub && cd $dir/repo && git init -q") == 0 or die;
+        $out = `cd $sub && $dozo -L -I alpine pwd 2>/dev/null`;
+        like($calls->(), qr{^exec .*--workdir /work/sub\b.* pwd$}m,
+             'from a subdirectory: exec in it');
     }
 };
 

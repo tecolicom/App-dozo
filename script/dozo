@@ -371,6 +371,19 @@ fi
 # Live container handling
 ##############################################################################
 
+# Run the command in the running container ID, or attach to it
+live_exec() {
+    local id=$1; shift
+    if (( $# > 0 )); then
+        local exec_opts=("${tty_opts[@]}")
+        [[ ! $unmount && $relative ]] && exec_opts+=(--workdir "$container_workdir")
+        docker exec "${exec_opts[@]}" "${env_opts[@]}" "$id" "$@"
+    else
+        warn "attaching to container $container ($id)"
+        docker attach "$id"
+    fi
+}
+
 if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
@@ -399,14 +412,7 @@ if [[ $live ]]; then
         debug "container not found"
     fi
     if [[ $container_status == running ]] || id=$(docker_find -s running "$container"); then
-        if (( $# > 0 )); then
-            exec_opts=("${tty_opts[@]}")
-            [[ ! $unmount && $relative ]] && exec_opts+=(--workdir "$container_workdir")
-            docker exec "${exec_opts[@]}" "${env_opts[@]}" "$id" "$@"
-        else
-            warn "attaching to container $container ($id)"
-            docker attach "$id"
-        fi
+        live_exec "$id" "$@"
         exit
     fi
     warn "create live container \"$container\""
@@ -429,12 +435,22 @@ fi
 hostname=${image##*/}
 hostname=${hostname%%:*}
 
+# -L with a command: start the default command (shell) in the
+# background and exec the command in it, so that the container keeps
+# running after the command
+detach=
+[[ $live ]] && (( $# > 0 )) && detach=1
+
 declare -a dockopt=(
     -e DOZO_RUNNING_ON_DOCKER=1
     -e XLATE_RUNNING_ON_DOCKER=1
     --init
-    "${tty_opts[@]}"
 )
+if [[ $detach ]]; then
+    dockopt+=(--detach --interactive --tty)
+else
+    dockopt+=("${tty_opts[@]}")
+fi
 [[ ! $live       ]] && dockopt+=(--rm)
 [[   $live       ]] && dockopt+=(--name "$container")
 [[ -e $localtime ]] && dockopt+=(-v $localtime:$localtime:ro)
@@ -466,6 +482,17 @@ if [[ ! $quiet ]]; then
     [[ $live ]] && info+=" container=${container}"
     (( $# > 0 )) && info+=" command=$*"
     warn "docker run ${info}"
+fi
+
+if [[ $detach ]]; then
+    # standard output belongs to the command, not to the container ID
+    if [[ $dryrun ]]; then
+        docker run "${dockopt[@]}" "${image}"
+    else
+        docker run "${dockopt[@]}" "${image}" > /dev/null || exit 1
+    fi
+    live_exec "$container" "$@"
+    exit
 fi
 
 docker run "${dockopt[@]}" "${image}" "$@"
@@ -746,7 +773,16 @@ When C<-L> is specified, B<Dôzo> behaves as follows:
 
 =item 1. B<Container does not exist>
 
-Create a new persistent container (without C<--rm> flag).
+Create a new persistent container (without C<--rm> flag).  Without a
+command, the container is started with the image's default command
+(usually a shell) and you are connected to it.  With a command, the
+container is started in the background with the default command,
+and then the command is executed in it as in case 2.  So you can
+build up an environment from the first invocation, even in batch
+mode:
+
+    dozo -L -B apt-get install -y foo
+    dozo -L -B pip install bar
 
 =item 2. B<Container exists and is running>
 
