@@ -190,6 +190,17 @@ subtest 'here' => sub {
     like($out, qr/nosuch.*not found/, 'unknown feature, base image not here: told');
 
     {
+        # an unknown feature on an existing container: -L stops, -S tells it once
+        local $ENV{STUB_CONTAINER} = 1;
+        my $err = `cd $work && $dozo -L -I alpine --with nosuch echo hi 2>&1 >/dev/null`;
+        isnt($? >> 8, 0, 'unknown feature, existing container: -L stops');
+        like($err, qr/feature nosuch not found/, 'unknown feature, existing container: told');
+        unlike(calls(), qr/^exec /m, 'unknown feature, existing container: not run');
+        ($out, $st) = status('-S -I alpine --with nosuch');
+        like($out, qr/--with +nosuch: feature nosuch not found/, 'unknown feature, -S: told');
+        unlike($out, qr/--with does not change/, 'unknown feature, -S: no note about the container');
+    }
+    {
         local $ENV{STUB_CONTAINER} = 1;
         local $ENV{STUB_CONTAINER_MOUNT} = '/other/proj';
         ($out, $st) = status('-S -I alpine');

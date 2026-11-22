@@ -608,99 +608,80 @@ live_check_mount() {
         || live_fail "container $container is for $mount, not $live_mount; give another name with -N"
 }
 
+# live_notices ID FUNC [BASE]: tell with FUNC what does not change the
+# existing container ID (-L, and the notes of -S).  --with is checked
+# on BASE, $image by default
+live_notices() {
+    local id=$1 tell=$2 base=${3-$image}
+    [[ $auto_pull ]] && $tell "-A does not change existing container $container, use -K to recreate it"
+    if (( ${#with_names[@]} > 0 )); then
+        local image=$base
+        if ! with_image -c || [[ $(command docker inspect --format '{{.Image}}' "$id") \
+                               != $(image_id "$run_image") ]]; then
+            $tell "--with does not change existing container $container, use -K to recreate it"
+        fi
+    elif [[ $image && ! $auto_pull ]]; then
+        # the container name does not tell the tag or the owner of the image
+        if [[ $(command docker inspect --format '{{.Image}}' "$id") != $(image_id "$image") ]]; then
+            $tell "existing container $container is not made from $image, use -K to recreate it"
+        fi
+    fi
+    return 0
+}
+
 ##############################################################################
 # Show the status
 ##############################################################################
 
+# -S prints these parts in order, and changes nothing:
+#
+#   status_here        what -L (and -K, -A, --with) would do here, and why
+#   status_containers  the live containers made by dozo
+#   status_images      the derived images made by --with
+#   to clean up:       the commands collected in status_cleanup
+#
+# The parts pass on what a later one needs:
+#
+#   status_with_image  the image --with would run here (marks an image)
+#   status_used        the images containers use (cannot be removed)
+#   status_cleanup     the commands to remove what is not needed
+#
+# The notes of status_here are the errors live_fail has kept, and the
+# notices of live_notices: the same as -L would tell.
+
+status_with_image= status_used=() status_cleanup=()
+
+status_main() {
+    local c
+    status_here
+    echo
+    status_containers
+    echo
+    status_images
+    if (( ${#status_cleanup[@]} > 0 )); then
+        echo
+        echo "to clean up:"
+        for c in "${status_cleanup[@]}"; do echo "  $c"; done
+    fi
+}
+
+#
+# Output helpers
+#
+
 # status_line LABEL TEXT
 status_line() { printf '  %-10s %s\n' "$1" "$2"; }
+status_note() { status_line note "$*"; }
 
-# What -L (and -K, -A, --with) would do here, and why
-status_here() {
-    local id= cstatus= how shown=$image from=$image_from note check kl= stop=
-    [[ $kill && $live ]] && kl=1
-    echo "$live_mount:"
-    if (( ${#found[@]} == 1 )); then
-        how="found by label"
-        if [[ ! $kl ]]; then
-            shown=$(command docker inspect \
-                        --format '{{index .Config.Labels "dozo.image"}}' "$name") || shown=
-        fi
-        from="label of $name"
-    elif [[ $name ]]; then
-        how="found by name, -N"
-    elif [[ $image_given ]]; then
-        how="found by name, from -I"
-    else
-        how="found by name, from .dozorc"
-    fi
-    if [[ $shown ]]; then
-        status_line image "$shown ($from)"
-    else
-        status_line image "none"
-    fi
-    if (( ${#found[@]} > 1 )); then
-        status_line container "several containers: ${found[*]}"
-    else
-        container=$(container_name)
-        if id=$(docker_find "$container"); then
-            live_check_mount "$id" || stop=1
-            cstatus=$(docker_status "$id") || cstatus=unknown
-            status_line container "$container, $cstatus ($how)"
-        elif [[ $image ]]; then
-            status_line container "$container, none: would create from $image"
-        else
-            status_line container "no live container for $live_mount; an image must be specified with -I"
-        fi
-    fi
-    # --with: the image with the features, on the image it would be made from
-    if (( ${#with_names[@]} > 0 )); then
-        check=$( (
-            image=$shown run_image=
-            if [[ ! $image ]]; then echo "the image is not decided"
-            elif with_image -c; then echo "$run_image (exists)"
-            elif [[ $run_image ]]; then echo "$run_image, not built yet: made when used"
-            else echo "$image is not here yet: made when used"
-            fi
-        ) 2>&1 ) || :
-        status_line --with "$(IFS=,; echo "${with_names[*]}"): ${check#"$myname: "}"
-        status_with_image=$( image=$shown; with_image -c > /dev/null 2>&1 && echo "$run_image" ) || :
-    fi
-    (( ${#found[@]} > 1 )) && stop=1
-    [[ $kl && ${#found[@]} == 1 && ! $image ]] && stop=1
-    if [[ $stop ]]; then
-        # -L and -K stop with the error of the note: nothing is removed
-        [[ $kill ]] && status_line -K "would stop: see the note, nothing is removed"
-    elif [[ $id ]]; then
-        if [[ $kill ]]; then
-            status_line -K "would remove $container"
-            if [[ $live ]]; then
-                if [[ $image ]]; then status_line '' "then create from $image"
-                else status_line '' "then no live container for $live_mount; an image must be specified with -I"
-                fi
-            fi
-            [[ $auto_pull && $live && $image ]] && status_line -A "would pull $image"
-        else
-            [[ $auto_pull ]] && status_notes+=("-A does not change existing container $container, use -K to recreate it")
-            if (( ${#with_names[@]} > 0 )); then
-                if ! ( image=$shown; with_image -c > /dev/null 2>&1 &&
-                       [[ $(command docker inspect --format '{{.Image}}' "$id") == $(image_id "$run_image") ]] ); then
-                    status_notes+=("--with does not change existing container $container, use -K to recreate it")
-                fi
-            elif [[ $image && ! $auto_pull ]]; then
-                if [[ $(command docker inspect --format '{{.Image}}' "$id") != $(image_id "$image") ]]; then
-                    status_notes+=("existing container $container is not made from $image, use -K to recreate it")
-                fi
-            fi
-        fi
-    else
-        [[ $kill ]] && status_line -K "nothing to remove"
-        [[ $auto_pull && $image ]] && status_line -A "would pull $image"
-    fi
-    for note in "${status_notes[@]}"; do status_line note "$note"; done
+# ~ for the home directory
+status_path() {
+    local p=$1
+    [[ $p == "$HOME" || $p == "$HOME"/* ]] && p="~${p#"$HOME"}"
+    echo "$p"
 }
 
 # split_tab ARRAY LINE: fields separated by tabs, empty ones kept
+# ("read" with IFS=$'\t' would join empty fields)
 split_tab() {
     local -n _f=$1
     local _l=$2
@@ -730,35 +711,134 @@ status_table() {
     done | sed 's/ *$//'
 }
 
-# ~ for the home directory
-status_path() {
-    local p=$1
-    [[ $p == "$HOME" || $p == "$HOME"/* ]] && p="~${p#"$HOME"}"
-    echo "$p"
+#
+# Here: the directory, image, container, --with, -K and -A, notes
+#
+
+# The pieces share the locals of status_here:
+#   shown, from  the image of the container and where it is given
+#   how          how the container is found
+#   id           the ID of the container, empty when there is none
+#   stop         -L and -K would stop with the error of a note
+status_here() {
+    local shown from how id= stop= note kl=
+    [[ $kill && $live ]] && kl=1
+    echo "$live_mount:"
+    status_here_image
+    status_here_container
+    status_here_with
+    status_here_kill
+    for note in "${status_notes[@]}"; do status_note "$note"; done
+    # in a subshell: an unknown feature is told by status_here_with
+    if [[ $id && ! $kill && ! $stop ]]; then
+        ( live_notices "$id" status_note "$shown" ) 2>/dev/null || :
+    fi
 }
 
-status_cleanup=() status_used=() status_with_image=
+status_here_image() {
+    shown=$image from=$image_from
+    if (( ${#found[@]} == 1 )); then
+        how="found by label" from="label of $name"
+        # -KL has the image of the label already
+        if [[ ! $kl ]]; then
+            shown=$(command docker inspect \
+                        --format '{{index .Config.Labels "dozo.image"}}' "$name") || shown=
+        fi
+    elif [[ $name ]]; then
+        how="found by name, -N"
+    elif [[ $image_given ]]; then
+        how="found by name, from -I"
+    else
+        how="found by name, from .dozorc"
+    fi
+    if [[ $shown ]]; then status_line image "$shown ($from)"; else status_line image none; fi
+}
+
+status_here_container() {
+    local cstatus
+    if (( ${#found[@]} > 1 )); then
+        status_line container "several containers: ${found[*]}"
+        stop=1
+        return 0
+    fi
+    container=$(container_name)
+    if id=$(docker_find "$container"); then
+        live_check_mount "$id" || stop=1
+        cstatus=$(docker_status "$id") || cstatus=unknown
+        status_line container "$container, $cstatus ($how)"
+    elif [[ $image ]]; then
+        status_line container "$container, none: would create from $image"
+    else
+        status_line container "no live container for $live_mount; an image must be specified with -I"
+    fi
+    # -KL without the image of the label
+    [[ $kl && ${#found[@]} == 1 && ! $image ]] && stop=1
+    return 0
+}
+
+# --with: the image with the features, on the image of the container
+status_here_with() {
+    (( ${#with_names[@]} > 0 )) || return 0
+    local check
+    check=$( (
+        image=$shown run_image=
+        if [[ ! $image ]]; then echo "the image is not decided"
+        elif with_image -c; then echo "$run_image (exists)"
+        elif [[ $run_image ]]; then echo "$run_image, not built yet: made when used"
+        else echo "$image is not here yet: made when used"
+        fi
+    ) 2>&1 ) || :
+    status_line --with "$(IFS=,; echo "${with_names[*]}"): ${check#"$myname: "}"
+    [[ $check == *" (exists)" ]] && status_with_image=${check% (exists)}
+    return 0
+}
+
+status_here_kill() {
+    if [[ $stop ]]; then
+        # -L and -K stop with the error of the note: nothing is removed
+        [[ $kill ]] && status_line -K "would stop: see the note, nothing is removed"
+    elif [[ $id ]]; then
+        [[ $kill ]] || return 0
+        status_line -K "would remove $container"
+        if [[ $live && $image ]]; then
+            status_line '' "then create from $image"
+        elif [[ $live ]]; then
+            status_line '' "then no live container for $live_mount; an image must be specified with -I"
+        fi
+        [[ $auto_pull && $live && $image ]] && status_line -A "would pull $image"
+    else
+        [[ $kill ]] && status_line -K "nothing to remove"
+        [[ $auto_pull && $image ]] && status_line -A "would pull $image"
+    fi
+    return 0
+}
+
+#
+# Live containers
+#
 
 # dozo's live containers: with the label dozo.mount, or with
 # DOZO_RUNNING_ON_DOCKER (made before the labels); not those of --rm
 status_containers() {
     local ids=() line f rows=() mark dir phys notes img id
+    local cname cstate autorm cid cimage lmount limage marker source
     local fmt='{{.Name}}	{{.State.Status}}	{{.HostConfig.AutoRemove}}	{{.Image}}	{{.Config.Image}}	{{index .Config.Labels "dozo.mount"}}	{{index .Config.Labels "dozo.image"}}	{{range .Config.Env}}{{if eq . "DOZO_RUNNING_ON_DOCKER=1"}}dozo{{end}}{{end}}	{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}'
     echo "live containers:"
     while IFS= read -r line; do [[ $line ]] && ids+=("$line"); done < <(command docker ps -a -q)
     if (( ${#ids[@]} > 0 )); then
         while IFS= read -r line; do
             [[ $line ]] || continue
-            # name status autoremove id image mount-label image-label marker source
             split_tab f "$line"
+            cname=${f[0]#/} cstate=${f[1]} autorm=${f[2]} cid=${f[3]} cimage=${f[4]}
+            lmount=${f[5]} limage=${f[6]} marker=${f[7]} source=${f[8]}
             # an image a container uses cannot be removed
-            status_used+=("${f[4]}")
-            [[ ${f[2]} == true ]] && continue
-            [[ ${f[5]} || ${f[7]} ]] || continue
+            status_used+=("$cimage")
+            [[ $autorm == true ]] && continue
+            [[ $lmount || $marker ]] || continue
             notes=() mark=
-            dir=${f[5]:-${f[8]}}
-            img=${f[6]:-${f[4]}}
-            [[ ${f[5]} ]] || notes+=("no label")
+            dir=${lmount:-$source}
+            img=${limage:-$cimage}
+            [[ $lmount ]] || notes+=("no label")
             if [[ ! $dir ]]; then
                 # made with -U, or the mount is not known: not gone
                 notes+=("directory unknown")
@@ -766,13 +846,14 @@ status_containers() {
                 [[ $phys == "$live_mount" ]] && mark='*'
             else
                 notes+=(gone)
-                status_cleanup+=("docker rm ${f[0]#/}")
+                status_cleanup+=("docker rm $cname")
             fi
-            [[ ${f[6]} && ${f[4]} != "${f[6]}" ]] && notes+=("with ${f[4]}")
-            if id=$(image_id "${f[4]}") && [[ $id != "${f[3]}" ]]; then
+            # made with --with: run from the derived image
+            [[ $limage && $cimage != "$limage" ]] && notes+=("with $cimage")
+            if id=$(image_id "$cimage") && [[ $id != "$cid" ]]; then
                 notes+=("image updated, -KL to recreate")
             fi
-            rows+=("$mark	${f[0]#/}	${f[1]}	$img	$(status_path "$dir")	$(IFS=,; echo "${notes[*]}" | sed 's/,/, /g')")
+            rows+=("$mark	$cname	$cstate	$img	$(status_path "$dir")	$(IFS=,; echo "${notes[*]}" | sed 's/,/, /g')")
         done < <(command docker inspect --format "$fmt" "${ids[@]}")
     fi
     if (( ${#rows[@]} > 0 )); then
@@ -782,10 +863,15 @@ status_containers() {
     fi
 }
 
+#
+# Derived images
+#
+
 # The images made by --with (label dozo.base), and whether --with would
 # use them now: made from the features and the base images as they are
 status_images() {
     local line f tags=() ids=() created=() labels=() rows=() i state mark tag u used
+    local base with
     echo "derived images:"
     while IFS= read -r line; do
         [[ $line ]] || continue
@@ -802,15 +888,8 @@ status_images() {
     fi
     for i in "${!ids[@]}"; do
         split_tab f "${labels[i]:-}"
-        tag=${tags[i]} mark=
-        state=$( (
-            image=${f[0]} run_image=
-            IFS=, read -ra with_names <<< "${f[1]:-}"
-            image_id "$image" > /dev/null || { echo "base gone"; exit; }
-            with_image -c > /dev/null 2>&1 || :
-            [[ $run_image ]] || exit 1
-            [[ $run_image == "$tag" ]] && echo current || echo outdated
-        ) ) || state="feature gone"
+        base=${f[0]} with=${f[1]:-} tag=${tags[i]} mark=
+        state=$(status_image_state "$base" "$with" "$tag") || state="feature gone"
         [[ $tag == "$status_with_image" ]] && mark='*'
         if [[ $state != current ]]; then
             used=
@@ -818,7 +897,7 @@ status_images() {
             [[ $tag == "<none>:<none>" ]] && tag=${ids[i]}
             [[ $used ]] || status_cleanup+=("docker image rm $tag")
         fi
-        rows+=("$mark	${tags[i]}	${f[0]}	${f[1]:-}	$state	${created[i]}")
+        rows+=("$mark	${tags[i]}	$base	$with	$state	${created[i]}")
     done
     if (( ${#rows[@]} > 0 )); then
         status_table "	IMAGE	BASE	WITH	STATE	CREATED" "${rows[@]}"
@@ -827,19 +906,16 @@ status_images() {
     fi
 }
 
-status_main() {
-    local c
-    status_here
-    echo
-    status_containers
-    echo
-    status_images
-    if (( ${#status_cleanup[@]} > 0 )); then
-        echo
-        echo "to clean up:"
-        for c in "${status_cleanup[@]}"; do echo "  $c"; done
-    fi
-}
+# status_image_state BASE WITH TAG: current, outdated or base gone;
+# fails when a feature is gone.  In a subshell: with_image exits then.
+status_image_state() (
+    image=$1 run_image=
+    IFS=, read -ra with_names <<< "$2"
+    image_id "$image" > /dev/null || { echo "base gone"; exit; }
+    with_image -c > /dev/null 2>&1 || :
+    [[ $run_image ]] || exit 1
+    [[ $run_image == "$3" ]] && echo current || echo outdated
+)
 
 [[ $status ]] && { status_main; exit 0; }
 
@@ -877,19 +953,7 @@ if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
         live_check_mount "$id"
-        [[ $auto_pull ]] && warn "-A does not change existing container $container, use -K to recreate it"
-        if (( ${#with_names[@]} > 0 )); then
-            if ! with_image -c || [[ $(command docker inspect --format '{{.Image}}' "$id") \
-                                   != $(image_id "$run_image") ]]; then
-                warn "--with does not change existing container $container, use -K to recreate it"
-            fi
-        elif [[ $image && ! $auto_pull ]]; then
-            # the container name does not tell the tag or the owner of the image
-            if [[ $(command docker inspect --format '{{.Image}}' "$id") \
-                  != $(image_id "$image") ]]; then
-                warn "existing container $container is not made from $image, use -K to recreate it"
-            fi
-        fi
+        live_notices "$id" warn
         container_status=$(docker_status "$id")
         case $container_status in
             created|exited)
