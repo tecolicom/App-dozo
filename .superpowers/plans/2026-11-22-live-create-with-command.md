@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bash 4.4+（`script/dozo`）、Perl Test::More（`t/03_dozo.t`, `xt/author/docker_dozo.t`）
 
-**Spec:** `docs/superpowers/specs/2026-11-22-live-create-with-command-design.md`
+**Spec:** `.superpowers/specs/2026-11-22-live-create-with-command-design.md`
 
 ## Global Constraints
 

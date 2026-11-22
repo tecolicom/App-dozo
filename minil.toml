@@ -21,4 +21,4 @@ hooks = [
 os = [ "MSWin32" ]
 
 [FileGatherer]
-exclude_match = [ '^images/.*', '^docs/.*' ]
+exclude_match = [ '^images/.*', '^\.superpowers/' ]
