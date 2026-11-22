@@ -656,6 +656,53 @@ subtest '--with NAME/ARG' => sub {
     $calls->();
 };
 
+subtest '-L and -I' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    my $log = "$dir/log";
+    docker_stub($dir);
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    local $ENV{STUB_IMAGES} = "$dir/images";
+    open my $o, '>', "$dir/images" or die;
+    print $o "alpine\n";
+    close $o;
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+
+    # an image which is not here yet: created and run, not stopped silently
+    my $out = `$dozo -U -L -I alpine:3.18 echo hi 2>/dev/null`;
+    is($?, 0, 'missing image with a command: exit status');
+    my $l = $calls->();
+    like($l, qr/^run .*--detach\b.* alpine:3\.18$/m, 'missing image with a command: created');
+    like($l, qr/^exec .* echo hi$/m, 'missing image with a command: executed');
+
+    local $ENV{STUB_CONTAINER} = 1;
+    {
+        local $ENV{STUB_CONTAINER_IMAGE} = 'sha256:alpine';
+        $out = `$dozo -U -L -I alpine echo hi 2>&1`;
+        unlike($out, qr/-K/, 'existing container on the same image: no notice');
+        like($out, qr/^execed$/m, 'existing container on the same image: used');
+    }
+    {
+        local $ENV{STUB_CONTAINER_IMAGE} = 'sha256:other';
+        $out = `$dozo -U -L -I alpine echo hi 2>&1`;
+        like($out, qr/not made from alpine, use -K to recreate it/, 'another image: notice');
+        like($out, qr/^execed$/m, 'another image: the container is still used');
+
+        $out = `$dozo -U -L -I alpine:3.18 echo hi 2>&1`;
+        like($out, qr/not made from alpine:3\.18/, 'image not here: notice');
+
+        $out = `$dozo -U -A -L -I alpine echo hi 2>&1`;
+        is(() = $out =~ /-K/g, 1, 'with -A: one notice');
+    }
+    $calls->();
+};
+
 subtest 'list options' => sub {
     my $dir = tempdir(CLEANUP => 1);
     open my $fh, '>', "$dir/docker" or die;

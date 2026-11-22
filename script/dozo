@@ -559,6 +559,12 @@ if [[ $live ]]; then
                                    != $(image_id "$run_image") ]]; then
                 warn "--with does not change existing container $container, use -K to recreate it"
             fi
+        elif [[ ! $auto_pull ]]; then
+            # the container name does not tell the tag or the owner of the image
+            if [[ $(command docker inspect --format '{{.Image}}' "$id") \
+                  != $(image_id "$image") ]]; then
+                warn "existing container $container is not made from $image, use -K to recreate it"
+            fi
         fi
         container_status=$(docker_status "$id")
         case $container_status in
@@ -617,8 +623,10 @@ hostname=${hostname%%:*}
 # the command as before, because the command is its argument.
 detach=
 if [[ $live ]] && (( $# > 0 )); then
+    # an image which is not here yet is pulled by docker run below
     entrypoint=$(command docker image inspect \
-                     --format '{{json .Config.Entrypoint}}' "$run_image" 2>/dev/null)
+                     --format '{{json .Config.Entrypoint}}' "$run_image" 2>/dev/null) \
+        || entrypoint=
     [[ $entrypoint == @(|null|\[\]) ]] && detach=1
 fi
 
@@ -1009,6 +1017,13 @@ For example, if you run:
 
 from C</home/user/project>, the container name would be
 C<xlate.project>.
+
+The name is made from the last part of the image name only, without
+the tag, the owner or the registry: C<alpine> and C<alpine:3.18>, or
+C<tecolicom/xlate> and C<other/xlate>, give the same name, and an
+existing container is used for both.  When the image of the existing
+container differs from the one given by B<-I>, B<dozo> tells so; use
+B<-K> to recreate the container, or B<-N> to give another name.
 
 You can override the auto-generated name using the C<-N> option:
 
