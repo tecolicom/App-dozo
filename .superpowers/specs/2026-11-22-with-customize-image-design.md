@@ -9,7 +9,7 @@
 - 例: 手元の `LANG=ja_JP.UTF-8` が渡されるが、homebrew/brew には `C`, `C.utf8`,
   `POSIX`, `en_US.utf8` しかなく、perl が "Setting locale failed" を出す。
 
-定番設定を名前付きの「断片」として用意しておき、任意のイメージに場合に応じて
+定番設定を名前付きの「feature」として用意しておき、任意のイメージに場合に応じて
 選んで簡単に足せるようにする。重い準備（locale のインストールなど）も簡単に
 呼び出せるが、毎回は実行しない。
 
@@ -17,17 +17,17 @@
 
 - 目標
   - `dozo -I homebrew/brew --with ja-locale,home make test` のように指定すると、
-    元イメージに断片を足したイメージで実行する。
+    元イメージに feature を足したイメージで実行する。
   - 一度作ったイメージは使い回す。2 回目以降の上乗せは、ふつうの起動と体感で
     変わらない程度（目安: 0.1 秒未満）。
-  - 断片か元イメージが変わったときだけ、自動で作り直す。
+  - feature か元イメージが変わったときだけ、自動で作り直す。
   - 使い捨て（`--rm`）の実行と、`-L` のコンテナ作成の両方で効く。
-  - 断片からファイルをコピーできる（xlate の `COPY ./root /root` 相当）。
+  - feature からファイルをコピーできる（xlate の `COPY ./root /root` 相当）。
 - 非目標
-  - 標準の断片を dozo に同梱すること。断片はユーザーが自分で書く。
+  - 標準の feature を dozo に同梱すること。feature はユーザーが自分で書く。
   - ディストリビューション（apt / apk など）の違いを吸収すること。
   - 派生イメージを自動で掃除すること。ラベルで探せるようにするだけ。
-  - プロジェクトごと（git top など）の断片ディレクトリ。
+  - プロジェクトごと（git top など）の feature ディレクトリ。
 - 避けたいこと
   - `--with` を使わないときの動作・速度が変わること。
   - 標準出力にビルドの出力が混ざること（標準出力はコマンドの出力専用）。
@@ -36,9 +36,9 @@
 
 - A. 準備スクリプトをコンテナ作成時に `docker exec` で流す。
   使い捨ての実行では毎回流すことになり、「毎回は実行しない」に反するので不採用。
-- **B. 元イメージに断片を足した派生イメージを作り、使い回す（採用）。**
+- **B. 元イメージに feature を足した派生イメージを作り、使い回す（採用）。**
   使い捨てでも `-L` でも効き、2 回目以降はイメージの有無の確認だけで済む。
-  断片は Dockerfile の書き方で書けるので、xlate の Dockerfile の書き方がそのまま使える。
+  feature は Dockerfile の書き方で書けるので、xlate の Dockerfile の書き方がそのまま使える。
 - C. 実行時に環境変数とドットファイルのマウントだけで済ませる。
   locale のインストールのような、中でコマンドを実行する設定ができないので不採用。
 
@@ -47,38 +47,38 @@
 ### 指定方法
 
 - 新しいオプション `--with=NAME[,NAME...]`。繰り返し指定できる（`@` 型）。
-  値は `,` と `:` のどちらでも区切れる。
+  値は `,` で区切る（`:` は docker のイメージ名のタグ区切りと紛らわしいので使わない）。
   - `.dozorc` に書いたものとコマンドラインのものは積み重なる（`-E` / `-V` と同じ）。
   - 適用順は指定順（`.dozorc` → コマンドライン、各値の中は左から）。
   - 同じ名前が二度出てきたときの扱いは実装者に任せる（そのまま二度適用してもよい）。
 - 短い名前は付けない（`-w` は `-W`（`--mount-cwd`）と紛らわしい）。
 
-### 断片
+### feature
 
-- 置き場所: `~/.config/dozo/with/NAME`
+- 置き場所: `~/.config/dozo/features/NAME`
 - 形式は 2 通り:
   - **ファイル**: 中身が Dockerfile の断片（`RUN`, `ENV`, `USER` など）。
     `COPY` するものはない。
   - **ディレクトリ**: `NAME/Dockerfile` が Dockerfile の断片で、ディレクトリ自体が
     ビルドの材料（context）。`COPY` でディレクトリ内のファイルをコピーできる。
-- 断片には、dozo が次の値を渡す（Dockerfile の `ARG` として参照できる）:
+- feature には、dozo が次の値を渡す（Dockerfile の `ARG` として参照できる）:
   - `DOZO_USER`: 元イメージ本来のユーザー名（`Config.User` が空なら root）
   - `DOZO_HOME`: そのユーザーのホームディレクトリ
   - 例: `COPY --chown=$DOZO_USER . $DOZO_HOME/`
-- 断片の中で `USER root` に切り替えてよい。各段の最後に、dozo が元イメージ本来の
+- feature の中で `USER root` に切り替えてよい。各段の最後に、dozo が元イメージ本来の
   ユーザーへ戻す（`Config.User` が空なら何もしない）。
 
-断片の例:
+feature の例:
 
 ```
-# ~/.config/dozo/with/ja-locale
+# ~/.config/dozo/features/ja-locale
 USER root
 RUN apt-get update && apt-get install -yq locales && locale-gen ja_JP.UTF-8
 ENV LANG=ja_JP.UTF-8
 ```
 
 ```
-# ~/.config/dozo/with/home/Dockerfile
+# ~/.config/dozo/features/home/Dockerfile
 COPY --chown=$DOZO_USER . $DOZO_HOME/
 RUN exec >> $DOZO_HOME/.inputrc \
     && echo Control-n: history-search-forward \
@@ -90,22 +90,22 @@ RUN exec >> $DOZO_HOME/.inputrc \
 
 ### ビルドと使い回し
 
-- 断片 1 つにつき 1 段の `docker build` を重ねる。1 段目の `FROM` は元イメージ、
-  2 段目以降の `FROM` は前の段のイメージ。こうすると各断片のディレクトリを
+- feature 1 つにつき 1 段の `docker build` を重ねる。1 段目の `FROM` は元イメージ、
+  2 段目以降の `FROM` は前の段のイメージ。こうすると各 feature のディレクトリを
   そのまま context にでき、変わっていない前の段は使い回される。
-- 各段のタグは「親イメージの ID」と「断片の中身（ディレクトリならファイル名と
+- 各段のタグは「親イメージの ID」と「feature の中身（ディレクトリならファイル名と
   中身すべて）」から決まる値で作る。そのタグのイメージが手元にあればビルドしない。
   - 確認は `docker image inspect`（実測 0.02 秒）で行い、毎回 `docker build` に
     任せることはしない（キャッシュが効いても 1 段 0.15 秒かかるため）。
   - 元イメージが `-A` などで更新されて ID が変わると、自動で作り直される。
-- 派生イメージには、元イメージと断片名が分かるラベルを付ける
+- 派生イメージには、元イメージと feature 名が分かるラベルを付ける
   （例: `dozo.base=homebrew/brew`, `dozo.with=ja-locale,home`）。
   POD に、ラベルで探して消すコマンド例を書く。
 - `DOZO_USER` / `DOZO_HOME` を調べるための `docker run --rm`（実測 0.13 秒）は、
   ビルドが必要なときにだけ行う。
 - ビルドの出力は標準エラーに出す。`-q` のときは出さない。
 - ビルドに失敗したら、コマンドを実行せず 0 以外で終了する。
-- 存在しない断片名が指定されたら、置き場所を示してエラー終了する。
+- 存在しない feature 名が指定されたら、置き場所を示してエラー終了する。
 
 ### 他のオプションとの関係
 
@@ -133,18 +133,18 @@ RUN exec >> $DOZO_HOME/.inputrc \
   （`cksum` は POSIX。`sha256sum` / `shasum` は片方にしかないことがある）。
 - `DOZO_HOME` を調べるには、元イメージに `sh` があること。ない場合は分かる
   エラーで終了する。
-- 実測（この Mac の docker 29.8.2）: ふつうの起動 0.13〜0.16 秒、軽い断片の初回
+- 実測（この Mac の docker 29.8.2）: ふつうの起動 0.13〜0.16 秒、軽い feature の初回
   ビルド 0.48 秒、`docker image inspect` 0.02 秒。
 
 ## 実装者に任せる点
 
 - タグ名の形式（例: `dozo/<元イメージ名>:<値>`）と、値の計算方法（上の制約内で）。
 - 生成する Dockerfile の細部（`ARG` の宣言の仕方、`USER` を戻す方法）。
-  Dockerfile は `docker build -f -` で標準入力から渡すなど、断片ディレクトリに
+  Dockerfile は `docker build -f -` で標準入力から渡すなど、feature ディレクトリに
   ファイルを書かない方法が望ましい。
 - `XDG_CONFIG_HOME` を尊重するかどうか。
-- POD の節の構成。`--with` の説明、断片の書き方、ja-locale と home の例、
+- POD の節の構成。`--with` の説明、feature の書き方、ja-locale と home の例、
   ラベルで派生イメージを探して消す方法を書く。
 - テスト: `t/03_dozo.t` は docker スタブで（ビルドする/しない、順序、標準出力、
   エラー）、`xt/author/docker_dozo.t` は実機の alpine で（作成・使い回し・
-  断片の変更で作り直し・COPY・USER の戻り）。
+  feature の変更で作り直し・COPY・USER の戻り）。
