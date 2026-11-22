@@ -505,9 +505,9 @@ subtest '--with' => sub {
     # -L, no container: created from the derived image, named after the original
     $images->('alpine');
     $out = `$dozo -L -I alpine --with locale echo hi 2>/dev/null`;
-    my $log = $calls->();
-    like($log, qr/^run .*--name alpine\.\S+ .*dozo\/alpine:locale-\d+$/m, '-L: named after the original image');
-    like($log, qr/^run .*--hostname alpine\b/m, '-L: hostname from the original image');
+    $l = $calls->();
+    like($l, qr/^run .*--name alpine\.\S+ .*dozo\/alpine:locale-\d+$/m, '-L: named after the original image');
+    like($l, qr/^run .*--hostname alpine\b/m, '-L: hostname from the original image');
 
     # -L, existing container on the same image: no notice
     open my $im, '<', "$dir/images" or die;
@@ -532,9 +532,9 @@ subtest '--with' => sub {
     is($?, 0, 'dryrun: exit status');
     like($out, qr/^docker build .* -t dozo\/alpine:newone-\d+ /m, 'dryrun shows docker build');
     like($out, qr/^docker run .* dozo\/alpine:newone-\d+ echo hi$/m, 'dryrun shows docker run');
-    $log = $calls->();
-    unlike($log, qr/^build/m, 'dryrun builds nothing');
-    unlike($log, qr/^run /m, 'dryrun runs nothing');
+    $l = $calls->();
+    unlike($l, qr/^build/m, 'dryrun builds nothing');
+    unlike($l, qr/^run /m, 'dryrun runs nothing');
 
     # dryrun, two new stages and a missing base: pull, two builds, run
     $images->();
