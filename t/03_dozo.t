@@ -413,6 +413,12 @@ subtest '--with' => sub {
     is(scalar @build, 1, 'changing a feature rebuilds from that stage');
     like($build[0], qr/-t dozo\/alpine:home-/, 'only that stage');
 
+    # files made by Finder and editors do not change the tag
+    $spit->("$fd/home/$_", "junk\n")
+        for '.DS_Store', '.inputrc~', '.inputrc.swp', '.inputrc.swo', '#.inputrc#', '.#.inputrc';
+    `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
+    unlike($calls->(), qr/^build/m, 'Finder and editor files are ignored');
+
     {
         local $ENV{STUB_USER} = '1000:1000';
         $spit->("$fd/other", "RUN true\n");

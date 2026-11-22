@@ -236,12 +236,16 @@ feature_path() {
 
 # cksum of the content of a feature: the file, or the names and
 # contents of all files in the directory
+# Files made by Finder and editors do not count
 feature_sum() {
     local p=$1 f
     if [[ -d $p ]]; then
         (
             cd "$p" || exit 1
-            find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+            find . \( -name .DS_Store -o -name '*~' -o -name '.*.sw?' \
+                      -o -name '#*#' -o -name '.#*' \) -prune \
+                   -o -type f -print |
+            LC_ALL=C sort | while IFS= read -r f; do
                 printf '%s\n' "$f"
                 cat "$f"
             done
@@ -1040,9 +1044,17 @@ and so on).
 =item B<Directory>
 
 F<features/NAME/Dockerfile> is the fragment, and the directory itself
-is the build context, so C<COPY> can copy files in it.  Note that
-F<Dockerfile> itself is also in the context and copied by
-C<COPY . ...>; list it in F<.dockerignore> if it matters.
+is the build context, so C<COPY> can copy files in it.  Files made by
+Finder and editors (F<.DS_Store>, F<*~>, F<.*.sw?>, F<#*#>, F<.#*>)
+do not cause a rebuild, but they are still in the context, and so is
+F<Dockerfile> itself; C<COPY . ...> copies them too.  To keep them
+out of the image, list them in F<.dockerignore>:
+
+    Dockerfile
+    .dockerignore
+    .DS_Store
+    *~
+    .*.sw?
 
 =back
 
