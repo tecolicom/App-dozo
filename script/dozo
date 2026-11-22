@@ -32,7 +32,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image
     -A, --auto-pull    pull newer image before running
-        --with=#       add features to the image (repeatable)
+    -F, --with=#       add features to the image (repeatable)
     -E, --env=#        environment variable to inherit (repeatable)
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
@@ -453,7 +453,7 @@ declare -A OPTS=(
     [       kill | K   # kill existing container         ]=
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
-    [       with |   @ # add features to the image        ]=
+    [       with | F @ # add features to the image        ]=
 )
 
 ##############################################################################
@@ -926,7 +926,7 @@ Repeatable.
 
 Specify additional docker options. Repeatable.
 
-=item B<--with>=I<name>[/I<arg>][,I<name>[/I<arg>]...]
+=item B<-F> I<name>[/I<arg>][,...], B<--with>=I<name>[/I<arg>][,...]
 
 Run the image with the named features added.  A feature is a piece of
 Dockerfile kept in F<~/.config/dozo/features/> (or under

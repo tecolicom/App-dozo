@@ -604,6 +604,11 @@ subtest '--with NAME/ARG' => sub {
     `$dozo -I alpine --with locale/ja_JP+en_US echo hi 2>/dev/null`;
     unlike($calls->(), qr/^build/m, 'same argument: reused');
 
+    `$dozo -I alpine -F locale/ja_JP+en_US echo hi 2>/dev/null`;
+    $l = $calls->();
+    unlike($l, qr/^build/m, '-F is the same as --with');
+    like($l, qr/^run .* \Q$ja\E echo hi$/m, '-F runs the same stage');
+
     `$dozo -I alpine --with locale/ echo hi 2>/dev/null`;
     $l = $calls->();
     unlike($l, qr/^build/m, 'NAME/ is the same as NAME');
