@@ -768,6 +768,47 @@ subtest '-L finds the container by directory' => sub {
             isnt($?, 0, '-KL without -I, image unknown: error');
             unlike($calls->(), qr/^rm /m, '-KL without -I, image unknown: not removed');
         }
+        # an image in .dozorc is a default: the container of the
+        # directory is used before it
+        for my $rcopt ('-I debian', '-D') {
+            open my $rc, '>', "$dir/.dozorc" or die;
+            print $rc "$rcopt\n";
+            close $rc;
+            local $ENV{STUB_CONTAINER_IMAGE} = 'sha256:alpine';
+            my $err = $dozo_in->('-L echo hi 2>&1 >/dev/null');
+            is($?, 0, ".dozorc $rcopt: exit status");
+            $l = $calls->();
+            like($l, qr/^ps -a --filter label=dozo\.mount=/m, ".dozorc $rcopt: looked up");
+            like($l, qr/^exec .* abc123 echo hi$/m, ".dozorc $rcopt: exec in the container of the directory");
+            unlike($err, qr/not made from/, ".dozorc $rcopt: no notice about the image");
+
+            $dozo_in->('-K 2>/dev/null');
+            like($calls->(), qr/^rm -f alpine\.proj$/m, ".dozorc $rcopt: -K removes the container of the directory");
+
+            local $ENV{STUB_CONTAINER_IMAGE_NAME} = 'alpine:3.18';
+            $dozo_in->('-B -KL echo hi 2>/dev/null');
+            like($calls->(), qr/^run .* alpine:3\.18$/m, ".dozorc $rcopt: -KL makes it from the image of the label");
+        }
+        {
+            # -I on the command line wins over the lookup
+            $dozo_in->('-L -I alpine echo hi 2>/dev/null');
+            unlike($calls->(), qr/--filter label=/, '.dozorc and -I: no lookup');
+            # --no-image clears the image of .dozorc
+            local $ENV{STUB_LABELED} = '';
+            local $ENV{STUB_CONTAINER} = '';
+            my $err = $dozo_in->('-L --no-image echo hi 2>&1 >/dev/null');
+            like($err, qr/no live container for/, '--no-image: the image of .dozorc is not used');
+            $calls->();
+        }
+        {
+            # no container of the directory: made from the image of .dozorc
+            local $ENV{STUB_LABELED} = '';
+            local $ENV{STUB_CONTAINER} = '';
+            $dozo_in->('-B -L echo hi 2>/dev/null');
+            like($calls->(), qr/^run .*--name xlate\.proj .* tecolicom\/xlate$/m,
+                 '.dozorc: no container of the directory, made from its image');
+        }
+        unlink "$dir/.dozorc";
     }
     {
         # the label has the physical path

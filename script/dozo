@@ -426,7 +426,9 @@ Dôzo - Generic Docker Runner
 Usage: $myname [ options ] [ command ... ]
 END
 
-default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; }
+default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; image_set; }
+# image_given: -I or -D is on the command line, not only in .dozorc
+image_set() { image_given=$in_cmdline; }
 
 declare -A OPTS=(
     [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0 [&DELIM]=,
@@ -463,8 +465,20 @@ declare -A OPTS=(
 # getoptlong.sh is loaded unless dozo --bundle has embedded it; "-"
 # keeps the arguments of dozo away from it meanwhile
 declare -F getoptlong >/dev/null || . getoptlong.sh -
-set -- "${rc_opts[@]}" "$@"
-getoptlong init OPTS && getoptlong parse "$@" && eval "$(getoptlong set)"
+# .dozorc first, then the command line, to tell where the image is from
+args=("$@") in_cmdline= image_given=
+getoptlong init OPTS && getoptlong callback image image_set
+# "getoptlong set" takes the rest from the positional parameters
+set -- "${rc_opts[@]}"
+getoptlong parse "$@" && eval "$(getoptlong set)"
+if (( $# > 0 )); then
+    # a word in .dozorc ends the options: the rest is the command
+    set -- "$@" "${args[@]}"
+else
+    in_cmdline=1
+    set -- "${args[@]}"
+    getoptlong parse "$@" && eval "$(getoptlong set)"
+fi
 
 # Flush buffered warnings
 warn() { [[ $quiet ]] || echo "$*" >&2; }
@@ -526,14 +540,16 @@ container_workdir="${workdir}${relative:+/${relative}}"
 ##############################################################################
 
 # A live container has the label dozo.mount of the directory mounted.
-# Without an image and a name, -L and -K use the container of this
-# directory.  A name made from -I must not be of another directory:
+# Without an image on the command line and a name, -L and -K use the
+# container of this directory.  A name made from -I must not be of another directory:
 # the container would run the command on the files of that directory.
 # The physical path, so that a directory reached through a symlink is
 # the same directory
 live_mount=$(cd "${mount_dir:-$cwd}" 2>/dev/null && pwd -P) || live_mount=${mount_dir:-$cwd}
 name_given=$name
-if [[ ($live || $kill) && ! $image && ! $name ]]; then
+# An image in .dozorc is a default: the container of this directory is
+# used before it, but not before -I or -D on the command line
+if [[ ($live || $kill) && ! ($image && $image_given) && ! $name ]]; then
     found=()
     while IFS= read -r _n; do [[ $_n ]] && found+=("$_n"); done < <(
         command docker ps -a --filter "label=dozo.mount=$live_mount" --format '{{.Names}}')
@@ -541,7 +557,7 @@ if [[ ($live || $kill) && ! $image && ! $name ]]; then
         die "containers for $live_mount: ${found[*]}; choose one with -I or -N"
     fi
     if (( ${#found[@]} == 1 )); then
-        name=${found[0]} name_given=$name
+        name=${found[0]} name_given=$name image=
         # -KL makes it again: from the image it was made from
         if [[ $kill && $live ]]; then
             image=$(command docker inspect \
@@ -1097,13 +1113,20 @@ B<dozo>, which has no label.
     dozo -KL                    # make it again from the same image
     dozo -K                     # remove it
 
-When no image is given (no B<-I>, B<-D> or image in F<.dozorc>) and
-no B<-N>, B<-L> and B<-K> use the container made for the mounted
-directory, found by its C<dozo.mount> label.  In a git repository
-this is the top directory, so the same container is used from any
-subdirectory.  If there are several of them (made from different
-images), B<dozo> lists them; choose one with B<-I> or B<-N>.  B<-KL>
-makes the container again from the image in its C<dozo.image> label.
+When neither B<-I>, B<-D> nor B<-N> is on the command line, B<-L>
+and B<-K> use the container made for the mounted directory, found by
+its C<dozo.mount> label.  In a git repository this is the top
+directory, so the same container is used from any subdirectory.  If
+there are several of them (made from different images), B<dozo> lists
+them; choose one with B<-I> or B<-N>.  B<-KL> makes the container
+again from the image in its C<dozo.image> label.
+
+An image set in F<.dozorc> (by B<-I> or B<-D>) is a default: it is
+used only when there is no container for the directory.  So with
+B<-D> in F<~/.dozorc>, B<dozo -L> connects to the container started
+by B<dozo -I myimage -L> in this directory, and to the one of the
+default image elsewhere.  B<-I> or B<-D> on the command line always
+chooses the container of that image.
 
 =item B<Attach to existing container>
 
