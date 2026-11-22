@@ -392,7 +392,9 @@ subtest '--with' => sub {
     like($build[0], qr/-t dozo\/alpine:locale-\d+ -$/, 'file feature: no context');
     like($build[1], qr/-t dozo\/alpine:home-\d+ -f - \Q$fd\E\/home$/, 'directory feature: context');
     like($l, qr/^run .* dozo\/alpine:home-\d+ echo hi$/m, 'run the last stage');
-    like($dockerfile->(1), qr/\AFROM sha256:alpine\nARG DOZO_USER=root\nARG DOZO_HOME=\/root\nENV LANG=C.UTF-8\n\z/, 'generated Dockerfile');
+    like($dockerfile->(1), qr/\AFROM alpine\nARG DOZO_USER=root\nARG DOZO_HOME=\/root\nENV LANG=C.UTF-8\n\z/, 'generated Dockerfile');
+
+    like($dockerfile->(2), qr/\AFROM dozo\/alpine:locale-\d+\n/, 'next stage is built FROM the previous tag');
 
     `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
     unlike($calls->(), qr/^build/m, 'second time: nothing is built');

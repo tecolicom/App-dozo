@@ -260,7 +260,8 @@ feature_env() {
     [[ $build_home ]] || die "cannot find the home directory of $image"
 }
 
-# feature_build PARENT_ID TAG NAME PATH
+# feature_build FROM_NAME TAG NAME PATH
+# FROM_NAME is the image name for FROM: BuildKit does not take an ID
 feature_build() {
     local parent=$1 tag=$2 name=$3 path=$4 src args
     src=$path
@@ -284,7 +285,7 @@ feature_build() {
 # Make the image with the features on $image, and set run_image to it.
 # -c: do not build, return 1 when an image is missing.
 with_image() {
-    local check= n i path parent_id tag sum base part value
+    local check= n i from path parent_id tag sum base part value
     local paths=()
     [[ ${1:-} == -c ]] && check=1
     for n in "${with_names[@]}"; do
@@ -299,6 +300,7 @@ with_image() {
         parent_id=$(image_id "$image") || die "cannot find image $image"
     fi
     with_chain=
+    from=$image
     for i in "${!with_names[@]}"; do
         n=${with_names[i]} path=${paths[i]}
         with_chain+=${with_chain:+,}$n
@@ -311,9 +313,10 @@ with_image() {
         tag=dozo/$base:$part-$value
         if ! image_id "$tag" > /dev/null; then
             [[ $check ]] && return 1
-            feature_build "$parent_id" "$tag" "$n" "$path"
+            feature_build "$from" "$tag" "$n" "$path"
         fi
         parent_id=$(image_id "$tag") || die "cannot find image $tag"
+        from=$tag
         run_image=$tag
     done
 }
