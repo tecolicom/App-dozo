@@ -96,6 +96,30 @@ SKIP: {
         # Clean up
         `$dozo -I $image -N $container -K 2>&1`;
     };
+
+    subtest 'live container created with a command' => sub {
+        my $image = 'alpine:latest';
+        my $container = 'dozo-test-create-cmd';
+        `$dozo -I $image -N $container -K 2>&1`;
+
+        my $out = `$dozo -I $image -N $container -L -B sh -c 'echo one > /tmp/stack' 2>&1`;
+        like($out, qr/create live container/, 'created');
+        is(`docker inspect -f '{{.State.Status}}' $container`, "running\n",
+           'still running after the command');
+
+        $out = `$dozo -I $image -N $container -L -B cat /tmp/stack 2>/dev/null`;
+        is($out, "one\n", 'next command sees the result');
+
+        `$dozo -I $image -N $container -K 2>&1`;
+        $out = `echo data | $dozo -I $image -N $container -L -B cat 2>/dev/null`;
+        is($out, "data\n", 'piped input reaches the command on creation');
+
+        `$dozo -I $image -N $container -K 2>&1`;
+        `$dozo -I $image -N $container -L -B sh -c 'exit 3' 2>/dev/null`;
+        is($? >> 8, 3, 'exit status of the command on creation');
+
+        `$dozo -I $image -N $container -K 2>&1`;
+    };
 }
 
 done_testing;
