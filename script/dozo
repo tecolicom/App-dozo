@@ -617,7 +617,7 @@ status_line() { printf '  %-10s %s\n' "$1" "$2"; }
 
 # What -L (and -K, -A, --with) would do here, and why
 status_here() {
-    local id= cstatus= how shown=$image from=$image_from note check kl=
+    local id= cstatus= how shown=$image from=$image_from note check kl= stop=
     [[ $kill && $live ]] && kl=1
     echo "here: $live_mount"
     if (( ${#found[@]} == 1 )); then
@@ -644,7 +644,7 @@ status_here() {
     else
         container=$(container_name)
         if id=$(docker_find "$container"); then
-            live_check_mount "$id" || :
+            live_check_mount "$id" || stop=1
             cstatus=$(docker_status "$id") || cstatus=unknown
             status_line container "$container, $cstatus ($how)"
         elif [[ $image ]]; then
@@ -666,7 +666,12 @@ status_here() {
         status_line --with "$(IFS=,; echo "${with_names[*]}"): ${check#"$myname: "}"
         status_with_image=$( image=$shown; with_image -c > /dev/null 2>&1 && echo "$run_image" ) || :
     fi
-    if [[ $id ]]; then
+    (( ${#found[@]} > 1 )) && stop=1
+    [[ $kl && ${#found[@]} == 1 && ! $image ]] && stop=1
+    if [[ $stop ]]; then
+        # -L and -K stop with the error of the note: nothing is removed
+        [[ $kill ]] && status_line -K "would stop: see the note, nothing is removed"
+    elif [[ $id ]]; then
         if [[ $kill ]]; then
             status_line -K "would remove $container"
             if [[ $live ]]; then
@@ -754,7 +759,10 @@ status_containers() {
             dir=${f[5]:-${f[8]}}
             img=${f[6]:-${f[4]}}
             [[ ${f[5]} ]] || notes+=("no label")
-            if phys=$(cd "$dir" 2>/dev/null && pwd -P); then
+            if [[ ! $dir ]]; then
+                # made with -U, or the mount is not known: not gone
+                notes+=("directory unknown")
+            elif phys=$(cd "$dir" 2>/dev/null && pwd -P); then
                 [[ $phys == "$live_mount" ]] && mark='*'
             else
                 notes+=(gone)

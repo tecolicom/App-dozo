@@ -168,6 +168,9 @@ subtest 'here' => sub {
         ($out, $st) = status('-S');
         is($st, 0, 'several: exit status');
         like($out, qr/several containers.*alpine\.proj.*debian\.proj/, 'several: listed');
+        ($out, $st) = status('-K -S');
+        unlike($out, qr/nothing to remove/, 'several, -K: not "nothing to remove"');
+        like($out, qr/-K +would stop/, 'several, -K: would stop');
     }
 
     ($out, $st) = status('-S');
@@ -192,6 +195,9 @@ subtest 'here' => sub {
         ($out, $st) = status('-S -I alpine');
         is($st, 0, 'other directory: exit status');
         like($out, qr/^  note +.*\/other\/proj/m, 'other directory: note');
+        ($out, $st) = status('-KL -S -I alpine');
+        unlike($out, qr/would remove/, 'other directory, -KL: not removed');
+        like($out, qr/-K +would stop/, 'other directory, -KL: would stop');
     }
 
     ($out, $st, $err) = status('-S -I alpine echo hi');
@@ -210,7 +216,7 @@ subtest 'live containers' => sub {
     put("$dir/images", "alpine\nalpine:latest\n");
     my $rows = "$dir/containers";
     local $ENV{STUB_CONTAINERS} = $rows;
-    local $ENV{STUB_ALL_IDS} = 'id1 id2 id3 id4 id5';
+    local $ENV{STUB_ALL_IDS} = 'id1 id2 id3 id4 id5 id6';
     put($rows, join '', map { join("\t", @$_) . "\n" }
         ['/alpine.proj', 'running', 'false', 'sha256:alpine:latest', 'alpine:latest',
          $work, 'alpine:latest', 'dozo', $work],
@@ -218,6 +224,7 @@ subtest 'live containers' => sub {
          '', '', 'dozo', '/nonexistent/x'],
         ['/tmp1', 'running', 'true', 'sha256:a', 'alpine', $work, 'alpine', 'dozo', $work],
         ['/other', 'running', 'false', 'sha256:c', 'nginx', '', '', '', ''],
+        ['/nodir', 'exited', 'false', 'sha256:d', 'alpine', '', '', 'dozo', ''],
         ['/upd.home', 'exited', 'false', 'sha256:old', 'alpine:latest',
          $home, 'alpine:latest', 'dozo', $home],
     );
@@ -230,6 +237,9 @@ subtest 'live containers' => sub {
     unlike($out, qr/tmp1/, '--rm: not listed');
     unlike($out, qr/^..other /m, 'not made by dozo: not listed');
     like($out, qr/^  upd\.home .*updated/m, 'image updated');
+    like($out, qr/^  nodir .*directory unknown/m, 'no directory: unknown');
+    unlike($out, qr/^  nodir .*gone/m, 'no directory: not gone');
+    unlike($out, qr/docker rm nodir/, 'no directory: not to clean up');
     like($out, qr/^to clean up:\n(  docker .*\n)*  docker rm old\.x$/m, 'cleanup: gone');
     unlike($out, qr/docker rm (alpine\.proj|upd\.home)/, 'cleanup: only gone');
 
