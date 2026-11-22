@@ -400,6 +400,10 @@ subtest '--with' => sub {
     `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
     unlike($calls->(), qr/^build/m, 'second time: nothing is built');
 
+    `$dozo -I alpine --with locale,home echo hi 2>/dev/null`;
+    my @inspect = $calls->() =~ /^image inspect --format \{\{\.Id\}\} /mg;
+    is(scalar @inspect, 3, 'all cached, 2 features: one inspect for the base and one per stage');
+
     `$dozo -I alpine --with locale --with home echo hi 2>/dev/null`;
     unlike($calls->(), qr/^build/m, 'repeated --with is the same as a comma list');
 
@@ -430,6 +434,31 @@ subtest '--with' => sub {
         like($err, qr/cannot find image/, 'with a message');
         unlike($calls->(), qr/^run /m, 'and nothing is run');
 
+        {
+            local $ENV{STUB_PULL_FAILS} = 1;
+            $images->();
+            $err = `$dozo -A -I alpine --with locale echo hi 2>&1 >/dev/null`;
+            isnt($?, 0, '-A: missing base image whose pull fails');
+            unlike($err, qr/using the local image/, '-A: no "using the local image"');
+            like($err, qr/cannot find image/, '-A: with a message');
+            my @pull = $calls->() =~ /^pull /mg;
+            is(scalar @pull, 1, '-A: the failing pull is tried once');
+            $images->();
+            $err = `$dozo -I alpine --with locale echo hi 2>&1 >/dev/null`;
+            unlike($err, qr/using the local image/, 'no "using the local image" without -A either');
+            like($err, qr/cannot find image/, 'with a message');
+            $calls->();
+        }
+
+        {
+            local $ENV{STUB_PULL_ADDS} = 1;
+            $images->();
+            `$dozo -A -I alpine --with locale echo hi 2>/dev/null`;
+            my @pull = $calls->() =~ /^pull /mg;
+            is(scalar @pull, 1, '-A --with: the missing base is pulled once');
+        }
+
+        $images->();
         local $ENV{STUB_PULL_ADDS} = 1;
         `$dozo -I alpine --with locale echo hi 2>/dev/null`;
         is($?, 0, 'missing base image is pulled');

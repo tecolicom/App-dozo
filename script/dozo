@@ -210,12 +210,16 @@ docker() {
 
 # -A: the command runs on the local image when the pull fails, as it
 # does when offline.  Standard output belongs to the command.
+# With --with, with_image tells when there is no local image either.
 pull_image() {
     if [[ $quiet ]]; then
         docker pull --quiet "$image" > /dev/null
     else
         docker pull "$image" >&2
-    fi || warn "cannot pull $image, using the local image"
+    fi || {
+        pull_failed=1
+        (( ${#with_names[@]} > 0 )) || warn "cannot pull $image, using the local image"
+    }
 }
 
 ##############################################################################
@@ -298,12 +302,20 @@ with_image() {
     done
     base=$myname
     [[ $image =~ (.*/)?([-_.a-zA-Z0-9]+) ]] && base=${BASH_REMATCH[2]}
-    if ! parent_id=$(image_id "$image"); then
+    if parent_id=$(image_id "$image"); then
+        [[ $auto_pull && ${pull_failed:-} ]] && warn "cannot pull $image, using the local image"
+    else
         [[ $check ]] && return 1
-        pull_image
-        # dryrun: the pull was only shown, the image ID stays unknown
-        parent_id=$(image_id "$image") || { [[ $dryrun ]] && parent_id=$image; } \
-            || die "cannot find image $image"
+        if [[ $auto_pull ]]; then
+            # -A has pulled it already: do not try again
+            [[ $dryrun ]] && parent_id=$image \
+                || die "cannot find image $image (the pull failed)"
+        else
+            pull_image
+            # dryrun: the pull was only shown, the image ID stays unknown
+            parent_id=$(image_id "$image") || { [[ $dryrun ]] && parent_id=$image; } \
+                || die "cannot find image $image"
+        fi
     fi
     with_chain=
     from=$image
@@ -317,13 +329,14 @@ with_image() {
         [[ $part == [-.]* ]] && part=_${part:1}
         (( ${#part} + 1 + ${#value} > 128 )) && part=${part:0:127-${#value}}
         tag=dozo/$base:$part-$value
-        if ! image_id "$tag" > /dev/null; then
+        # one inspect finds the stage and gives the ID for the next parent
+        if ! parent_id=$(image_id "$tag"); then
             [[ $check ]] && return 1
             feature_build "$from" "$tag" "$n" "$path"
+            # dryrun: the stage was only shown, the tag stands for its ID
+            parent_id=$(image_id "$tag") || { [[ $dryrun ]] && parent_id=$tag; } \
+                || die "cannot find image $tag"
         fi
-        # dryrun: the stage was only shown, the tag stands for its ID
-        parent_id=$(image_id "$tag") || { [[ $dryrun ]] && parent_id=$tag; } \
-            || die "cannot find image $tag"
         from=$tag
         run_image=$tag
     done
@@ -1073,8 +1086,8 @@ Each feature makes one image on top of the previous one, tagged
 C<dozo/>I<base>C<:>I<name>C<->I<cksum>.  The checksum is made from
 the parent image and the content of the feature (for a directory, the
 names and contents of all files in it).  An image which already exists
-is reused and nothing is built, so the second and later runs are as
-fast as a plain run.  When a feature or the base image (for example
+is reused and nothing is built, so the second and later runs only
+add one image check per stage (a few tens of milliseconds).  When a feature or the base image (for example
 updated by B<-A>) changes, the image is made again from that feature
 on, and earlier images are reused.  Put heavy features first.
 
