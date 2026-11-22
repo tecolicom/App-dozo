@@ -192,6 +192,7 @@ case $1 in
     pull)    echo pulled; [[ ! $STUB_PULL_FAILS ]] ;;
     ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
     inspect) echo running ;;
+    image)   echo "${STUB_ENTRYPOINT:-null}" ;;
     run)     [[ ! $STUB_RUN_FAILS ]] || exit 1; echo ran ;;
     exec)    echo execed; exit ${STUB_EXEC_STATUS:-0} ;;
 esac
@@ -298,12 +299,23 @@ subtest '-L creates a container, then execs the command' => sub {
     unlike($log2, qr/--detach/, 'no command: not detached');
     unlike($log2, qr/^exec/m, 'no command: no exec');
 
+    {
+        # the command is given to the entrypoint, as before
+        local $ENV{STUB_ENTRYPOINT} = '["/usr/bin/hugo"]';
+        $out = `$dozo -L -I alpine version 2>/dev/null`;
+        my $log3 = $calls->();
+        like($log3, qr/^run .* alpine version$/m, 'entrypoint: run with the command');
+        unlike($log3, qr/--detach/, 'entrypoint: not detached');
+        unlike($log3, qr/^exec/m, 'entrypoint: no exec');
+    }
+
     $out = `$dozo -n -L -I alpine echo hi 2>/dev/null`;
     like($out, qr/^docker run .*--detach\b.* alpine$/m, 'dryrun shows docker run');
     like($out, qr/^docker exec .* echo hi$/m, 'dryrun shows docker exec');
     $calls->();
 
-    {
+    SKIP: {
+        skip 'git is not available', 1 if system('git --version >/dev/null 2>&1') != 0;
         my $sub = "$dir/repo/sub";
         system("mkdir -p $sub && cd $dir/repo && git init -q") == 0 or die;
         $out = `cd $sub && $dozo -L -I alpine pwd 2>/dev/null`;

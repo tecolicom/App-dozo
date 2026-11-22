@@ -437,9 +437,14 @@ hostname=${hostname%%:*}
 
 # -L with a command: start the default command (shell) in the
 # background and exec the command in it, so that the container keeps
-# running after the command
+# running after the command.  An image with an entrypoint is run with
+# the command as before, because the command is its argument.
 detach=
-[[ $live ]] && (( $# > 0 )) && detach=1
+if [[ $live ]] && (( $# > 0 )); then
+    entrypoint=$(command docker image inspect \
+                     --format '{{json .Config.Entrypoint}}' "$image" 2>/dev/null)
+    [[ $entrypoint == @(|null|\[\]) ]] && detach=1
+fi
 
 declare -a dockopt=(
     -e DOZO_RUNNING_ON_DOCKER=1
@@ -783,6 +788,9 @@ mode:
 
     dozo -L -B apt-get install -y foo
     dozo -L -B pip install bar
+
+If the image has an entrypoint, the command is given to it as
+arguments, and the container stops when it finishes.
 
 =item 2. B<Container exists and is running>
 

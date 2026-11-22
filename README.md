@@ -336,7 +336,19 @@ When `-L` is specified, **Dôzo** behaves as follows:
 
 - 1. **Container does not exist**
 
-    Create a new persistent container (without `--rm` flag).
+    Create a new persistent container (without `--rm` flag).  Without a
+    command, the container is started with the image's default command
+    (usually a shell) and you are connected to it.  With a command, the
+    container is started in the background with the default command,
+    and then the command is executed in it as in case 2.  So you can
+    build up an environment from the first invocation, even in batch
+    mode:
+
+        dozo -L -B apt-get install -y foo
+        dozo -L -B pip install bar
+
+    If the image has an entrypoint, the command is given to it as
+    arguments, and the container stops when it finishes.
 
 - 2. **Container exists and is running**
 
