@@ -615,6 +615,12 @@ subtest '--with NAME/ARG' => sub {
     `$dozo -I alpine --with "x/a b'c\\\$d" echo hi 2>/dev/null`;
     like($calls->(), qr/--build-arg DOZO_ARG=a b'c\$d /, 'argument with special characters');
 
+    for my $bad ('/foo', '/') {
+        my $err = `$dozo -I alpine --with '$bad' echo hi 2>&1 >/dev/null`;
+        like($err, qr/invalid feature name/, "empty name: $bad");
+        $calls->();
+    }
+
     for my $bad ('../x/y', '.x/y', 'nosuch/y') {
         my $err = `$dozo -I alpine --with '$bad' echo hi 2>&1 >/dev/null`;
         isnt($?, 0, "bad name with an argument: $bad");
@@ -629,12 +635,38 @@ subtest '--with NAME/ARG' => sub {
         my @b = $calls->() =~ /^build .*$/mg;
         like($b[0] // '', qr/--build-arg DOZO_ARG=ja_JP x /, '.dozorc value is kept whole');
         like($b[1] // '', qr/--build-arg DOZO_ARG=UTC /, 'and the command line one follows');
+        `$dozo -I alpine --no-with echo hi 2>/dev/null`;
+        $l = $calls->();
+        unlike($l, qr/^build/m, '--no-with cancels .dozorc');
+        like($l, qr/^run .* alpine echo hi$/m, '--no-with runs the base image');
         unlink "$dir/.dozorc";
     }
+
+    `$dozo -I alpine --with 'locale, tz/UTC ' echo hi 2>/dev/null`;
+    $l = $calls->();
+    like($l, qr/^run .* dozo\/alpine:tz_UTC-\d+ echo hi$/m, 'spaces around commas are ignored');
 
     $out = `$dozo -n -I alpine --with tz/Europe/Paris echo hi 2>/dev/null`;
     like($out, qr/^docker build .*--build-arg DOZO_ARG=Europe\/Paris /m, 'dryrun shows the argument');
     $calls->();
+};
+
+subtest 'list options' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    open my $fh, '>', "$dir/docker" or die;
+    print $fh "#!/bin/bash\n[[ \$1 == run ]] && printf '[%s]' \"\$\@\"\nexit 0\n";
+    close $fh;
+    chmod 0755, "$dir/docker" or die;
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    my $run = sub { scalar `$dozo -U -I alpine @_ true 2>/dev/null` };
+
+    like($run->(q(-E 'MSG=hello world')), qr/\[-e\]\[MSG=hello world\]/, '-E: a value with spaces is one element');
+    like($run->(q(-E 'A, B')), qr/\[-e\]\[A\]\[-e\]\[B\]/, '-E: split at commas, spaces trimmed');
+    like($run->(q(-V '/tmp/a b')), qr{\[-v\]\[/tmp/a b:/tmp/a b\]}, '-V: a path with spaces is one element');
+    like($run->(q(-O '--memory 2g')), qr/\[--memory\]\[2g\]/, '-O: still split at spaces');
+    like($run->(q(-P '8000 9000')), qr/\[-p\]\[8000:8000\]\[-p\]\[9000:9000\]/, '-P: still split at spaces');
+    like($run->(q(-P '8000, 9000')), qr/\[-p\]\[8000:8000\]\[-p\]\[9000:9000\]/, '-P: comma and space');
+    like($run->(q(-P 8000,9000)), qr/\[-p\]\[8000:8000\]\[-p\]\[9000:9000\]/, '-P: comma');
 };
 
 done_testing;

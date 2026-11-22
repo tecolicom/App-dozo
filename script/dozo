@@ -229,7 +229,7 @@ pull_image() {
 # Path of the feature NAME (a file, or a directory with a Dockerfile)
 feature_path() {
     local n=$1
-    [[ $n == */* || $n == .* ]] && die "invalid feature name: $n"
+    [[ ! $n || $n == */* || $n == .* ]] && die "invalid feature name: $n"
     [[ -e $feature_dir/$n ]] || die "feature $n not found in $feature_dir"
     echo "$feature_dir/$n"
 }
@@ -428,13 +428,8 @@ END
 
 default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; }
 
-# --with: keep each value whole (getoptlong would split a list option
-# at spaces too, and NAME/ARG may contain spaces); split at commas below
-with_values=()
-with() { with_values+=("$2"); }
-
 declare -A OPTS=(
-    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0
+    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0 [&DELIM]=,
     [       help | h ! # show help                       ]=
     [    version |   ! # show version                    ]=
     [     bundle |   ! # print self-contained dozo       ]=
@@ -458,7 +453,7 @@ declare -A OPTS=(
     [       kill | K   # kill existing container         ]=
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
-    [       with |   :! # add features to the image       ]=
+    [       with |   @ # add features to the image        ]=
 )
 
 ##############################################################################
@@ -476,11 +471,31 @@ warn() { [[ $quiet ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
 # --with: names separated by commas, in the order given
-with_names=()
-for _w in "${with_values[@]}"; do
-    IFS=, read -ra _parts <<< "$_w"
-    for _p in "${_parts[@]}"; do [[ $_p ]] && with_names+=("$_p"); done
-done
+# List options are split at commas only ([&DELIM] above), so that -E,
+# -V and --with can take a value with spaces.  Trim each element, and
+# split -P and -O at spaces too, as their values never contain one.
+list_trim() {
+    local -n _list=$1
+    local _v _new=()
+    for _v in "${_list[@]}"; do
+        _v=${_v#"${_v%%[![:space:]]*}"}
+        _v=${_v%"${_v##*[![:space:]]}"}
+        [[ $_v ]] && _new+=("$_v")
+    done
+    _list=("${_new[@]}")
+}
+list_split() {
+    local -n _list=$1
+    local _v _w _new=()
+    for _v in "${_list[@]}"; do
+        read -ra _w <<< "$_v"
+        _new+=("${_w[@]}")
+    done
+    _list=("${_new[@]}")
+}
+list_trim env; list_trim volume; list_trim with
+list_split port; list_split other
+with_names=("${with[@]}")
 
 # Apply options
 [[ $mount_cwd ]] && mount_dir="$cwd"
@@ -769,13 +784,15 @@ C<getoptlong.sh> in your C<PATH> manually.
 
 =head1 OPTIONS
 
-Repeatable options (B<-E>, B<-V>, B<-P> and B<-O>) can be given more
-than once, and a single value is also split into multiple elements at
-spaces, tabs and commas.  Thus C<-P 8000,9000> gives two port mappings,
-and B<-O> with the value C<--memory 2g> gives two docker options.  As a
-consequence, a value containing a space cannot be given as a single
-element: B<-E> with the value C<MSG=hello world> defines two variables,
-C<MSG=hello> and C<world>.
+Repeatable options (B<-E>, B<-V>, B<-P>, B<-O> and B<--with>) can be
+given more than once, and a single value is also split into multiple
+elements at commas; spaces around a comma are ignored.  Thus
+C<-P 8000,9000> gives two port mappings.  B<-P> and B<-O> are split
+at spaces and tabs as well, so B<-O> with the value C<--memory 2g>
+gives two docker options.  The others keep spaces in a value: B<-E>
+with the value C<MSG=hello world> defines one variable.  Use
+B<--no->I<option> (e.g. B<--no-with>) to discard the values given so
+far, including those in F<.dozorc>.
 
 =over 7
 
@@ -1099,22 +1116,24 @@ if the image sets none).
 A feature can take an argument, given after the first C</> of the
 name: C<--with locale/ja_JP> passes C<ja_JP> to the feature
 F<locale> as C<DOZO_ARG>.  Everything after the first C</> is the
-argument, so it may contain C</> itself (C<tz/Asia/Tokyo>), and
-spaces when quoted.  C<locale/> is the same as C<locale>.  The
-argument is given by C<docker build --build-arg>, and a feature reads
-it with C<ARG DOZO_ARG>.
+argument, so it may contain C</> itself (C<zone/Asia/Tokyo>), and
+spaces when quoted, but not a comma, which separates features.
+C<locale/> is the same as C<locale>.  The argument is given by
+C<docker build --build-arg>, and is available as C<$DOZO_ARG> in the
+feature.
 
 Different arguments make different images, and each of them is
 reused.  B<dozo> does not split the argument; to take several values,
-pick a separator and split it with C<IFS> in the feature:
+pick a separator and split it with C<IFS> in the feature (see
+F<features/locale> below):
 
-    dozo -I homebrew/brew --with locale/ja_JP+en_US,tz/Asia/Tokyo make test
+    dozo -I homebrew/brew --with locale/ja_JP+en_US make test
 
 =head2 Examples
 
 F<features/ja-locale> (for Ubuntu based images; C<apt-get update> is
 not checked, because an image may have a third party repository that
-fails, as F<homebrew/brew> does):
+fails):
 
     USER root
     RUN apt-get update; apt-get install -yq locales \
