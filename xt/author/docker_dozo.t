@@ -237,6 +237,59 @@ SKIP: {
         $in->("$a/sub", '-K 2>/dev/null');
         is(`docker ps -a -q --filter name=^/$container\$`, '', 'no -I: -K removes the container');
     };
+
+    subtest 'status' => sub {
+        my $top = Cwd::realpath(tempdir(CLEANUP => 1));
+        my $dir = "$top/dozo-test-status-$$";
+        system('mkdir', '-p', $dir) == 0 or die;
+        system("cd $dir && git init -q") == 0 or die;
+        my $container = "alpine.dozo-test-status-$$";
+        my $xdg = tempdir(CLEANUP => 1);
+        local $ENV{XDG_CONFIG_HOME} = $xdg;
+        my $fdir = "$xdg/dozo/features";
+        system('mkdir', '-p', $fdir) == 0 or die;
+        my $put = sub {
+            open my $fh, '>', $_[0] or die "$_[0]: $!";
+            print $fh $_[1];
+        };
+        $put->("$fdir/stat", "RUN echo $$ > /stat\n");
+        my $cleanup = sub {
+            system("docker rm -f $container >/dev/null 2>&1");
+            my @ids = split /\n/, `docker image ls -q --filter label=dozo.with=stat`;
+            system("docker image rm -f @ids >/dev/null 2>&1") if @ids;
+        };
+        $cleanup->();
+        my $guard = Guard->new($cleanup);
+        my $in = sub { my $d = shift; scalar `cd $d && $dozo @_` };
+
+        $in->($dir, "-B -L -I alpine:latest --with stat true 2>/dev/null");
+        my ($tag) = `docker image ls --filter label=dozo.with=stat --format '{{.Repository}}:{{.Tag}}'`;
+        chomp $tag;
+        ok($tag, 'the derived image is made');
+        my $state = sub {
+            join '', `docker ps -a --format '{{.ID}} {{.State}}'`,
+                     `docker image ls -a --format '{{.ID}} {{.Tag}}'`;
+        };
+        my $before = $state->();
+
+        my $out = $in->($dir, '-S --with stat 2>/dev/null');
+        is($?, 0, 'exit status');
+        like($out, qr/container +\Q$container\E, running \(found by label\)/, 'here: found by label');
+        like($out, qr/^\* \Q$container\E +running /m, 'the container row is marked');
+        like($out, qr/^\* \Q$tag\E +alpine:latest +stat +current /m, 'the derived image is current');
+        my $clean = sub { $_[0] =~ /^to clean up:\n((?:  .*\n?)*)/m ? $1 : '' };
+        unlike($clean->($out), qr/\Q$tag\E/, 'not to clean up');
+
+        $put->("$fdir/stat", "RUN echo changed > /stat\n");
+        $out = $in->($dir, '-S 2>/dev/null');
+        like($out, qr/^  \Q$tag\E +alpine:latest +stat +outdated /m, 'changed feature: outdated');
+        unlike($clean->($out), qr/\Q$tag\E/, 'changed feature: used by the container, not to clean up');
+        is($state->(), $before, 'nothing is changed by -S');
+
+        $in->($dir, '-K 2>/dev/null');
+        $out = $in->($dir, '-S 2>/dev/null');
+        like($clean->($out), qr/^  docker image rm \Q$tag\E$/m, 'no container: to clean up');
+    };
 }
 
 done_testing;

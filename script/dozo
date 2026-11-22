@@ -1264,6 +1264,17 @@ separated by comma, and the option is repeatable: values given in
 F<.dozorc> and on the command line accumulate (F<.dozorc> first).
 See L</FEATURES> section for details.
 
+=item B<-S>, B<--status>
+
+Show the status, and change nothing: what B<-L> would do here and
+why (the mounted directory, the image and where it is given, the
+container it would use or make, the image of B<--with>), the live
+containers and the derived images made by B<dozo>, and the commands
+to remove those which are no longer used.  Nothing is pulled, built,
+started or removed.  It takes no command.  Give it with other options
+to see what they would do: C<dozo -I alpine -S>, C<dozo --with locale
+-S>, C<dozo -KL -S>.  See L</Show the status>.
+
 =back
 
 =head1 INTERACTIVE MODE
@@ -1415,6 +1426,42 @@ a new one. Useful when you need a fresh container state.
 
 Without C<-L>, the container is removed and the command exits.
 
+=item B<Show the status>
+
+    dozo -S
+
+Shows what B<dozo -L> would do in this directory, and lists the live
+containers and the derived images (see L</Derived Images>):
+
+    here: /home/me/project
+      image      tecolicom/xlate (/home/me/.dozorc)
+      container  xlate.project, exited (found by label)
+      --with     locale: dozo/xlate:locale-3580643729 (exists)
+
+    live containers:
+      NAME           STATUS  IMAGE            DIRECTORY   NOTE
+    * xlate.project  exited  tecolicom/xlate  ~/project   with dozo/xlate:locale-3580643729
+      xlate.old      exited  tecolicom/xlate  ~/old       no label, gone
+
+    derived images:
+      IMAGE                         BASE             WITH    STATE     CREATED
+    * dozo/xlate:locale-3580643729  tecolicom/xlate  locale  current   2 hours ago
+      dozo/brew:locale-2017098170   homebrew/brew    locale  outdated  3 days ago
+
+    to clean up:
+      docker rm xlate.old
+      docker image rm dozo/brew:locale-2017098170
+
+C<*> marks what this directory uses.  The containers are those made
+by B<dozo> (also those made before the C<dozo.mount> label, shown with
+C<no label>), and not those run without B<-L>.  A container whose
+directory does not exist any more (C<gone>) is to clean up; one whose
+image has been updated since it was made can be made again with
+B<-KL>.  Where B<-L> would stop with an error (several containers for
+the directory, a container of another directory), the status tells it
+as a C<note> instead.  B<dozo> removes nothing: copy the commands
+under C<to clean up> to remove them.
+
 =back
 
 =head1 FEATURES
@@ -1553,7 +1600,11 @@ image differs; use B<-K> to recreate it:
 
 Derived images are not removed automatically.  They have the labels
 C<dozo.base> (the base image) and C<dozo.with> (the features applied
-so far).  To list and remove them:
+so far).  B<dozo -S> lists them with their state: C<current> (used
+by B<--with> now), C<outdated> (the feature or the base image has
+changed since), C<feature gone> or C<base gone>, and shows the
+commands to remove those not current and not used by a container (see
+L</Show the status>).  To list and remove all of them:
 
     docker image ls --filter label=dozo.base
     docker image rm $(docker image ls -q --filter label=dozo.base)

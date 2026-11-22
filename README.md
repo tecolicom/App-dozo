@@ -36,6 +36,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -K, --kill         kill and remove existing container
     -P, --port=#       port mapping (repeatable)
     -O, --other=#      additional docker options (repeatable)
+    -S, --status       show live containers and derived images
 
 # VERSION
 
@@ -324,6 +325,17 @@ far, including those in `.dozorc`.
     `.dozorc` and on the command line accumulate (`.dozorc` first).
     See ["FEATURES"](#features) section for details.
 
+- **-S**, **--status**
+
+    Show the status, and change nothing: what **-L** would do here and
+    why (the mounted directory, the image and where it is given, the
+    container it would use or make, the image of **--with**), the live
+    containers and the derived images made by **dozo**, and the commands
+    to remove those which are no longer used.  Nothing is pulled, built,
+    started or removed.  It takes no command.  Give it with other options
+    to see what they would do: `dozo -I alpine -S`, `dozo --with locale
+    \-S`, `dozo -KL -S`.  See ["Show the status"](#show-the-status).
+
 # INTERACTIVE MODE
 
 The container is started with Docker's `--interactive` option, and
@@ -467,6 +479,42 @@ of that directory; give another name with **-N**.  A name given by
 
     Without `-L`, the container is removed and the command exits.
 
+- **Show the status**
+
+        dozo -S
+
+    Shows what **dozo -L** would do in this directory, and lists the live
+    containers and the derived images (see ["Derived Images"](#derived-images)):
+
+        here: /home/me/project
+          image      tecolicom/xlate (/home/me/.dozorc)
+          container  xlate.project, exited (found by label)
+          --with     locale: dozo/xlate:locale-3580643729 (exists)
+
+        live containers:
+          NAME           STATUS  IMAGE            DIRECTORY   NOTE
+        * xlate.project  exited  tecolicom/xlate  ~/project   with dozo/xlate:locale-3580643729
+          xlate.old      exited  tecolicom/xlate  ~/old       no label, gone
+
+        derived images:
+          IMAGE                         BASE             WITH    STATE     CREATED
+        * dozo/xlate:locale-3580643729  tecolicom/xlate  locale  current   2 hours ago
+          dozo/brew:locale-2017098170   homebrew/brew    locale  outdated  3 days ago
+
+        to clean up:
+          docker rm xlate.old
+          docker image rm dozo/brew:locale-2017098170
+
+    `*` marks what this directory uses.  The containers are those made
+    by **dozo** (also those made before the `dozo.mount` label, shown with
+    `no label`), and not those run without **-L**.  A container whose
+    directory does not exist any more (`gone`) is to clean up; one whose
+    image has been updated since it was made can be made again with
+    **-KL**.  Where **-L** would stop with an error (several containers for
+    the directory, a container of another directory), the status tells it
+    as a `note` instead.  **dozo** removes nothing: copy the commands
+    under `to clean up` to remove them.
+
 # FEATURES
 
 A _feature_ is a named piece of Dockerfile that is added to any
@@ -595,7 +643,11 @@ image differs; use **-K** to recreate it:
 
 Derived images are not removed automatically.  They have the labels
 `dozo.base` (the base image) and `dozo.with` (the features applied
-so far).  To list and remove them:
+so far).  **dozo -S** lists them with their state: `current` (used
+by **--with** now), `outdated` (the feature or the base image has
+changed since), `feature gone` or `base gone`, and shows the
+commands to remove those not current and not used by a container (see
+["Show the status"](#show-the-status)).  To list and remove all of them:
 
     docker image ls --filter label=dozo.base
     docker image rm $(docker image ls -q --filter label=dozo.base)
