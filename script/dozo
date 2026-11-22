@@ -619,7 +619,7 @@ status_line() { printf '  %-10s %s\n' "$1" "$2"; }
 status_here() {
     local id= cstatus= how shown=$image from=$image_from note check kl= stop=
     [[ $kill && $live ]] && kl=1
-    echo "here: $live_mount"
+    echo "$live_mount:"
     if (( ${#found[@]} == 1 )); then
         how="found by label"
         if [[ ! $kl ]]; then
@@ -1441,7 +1441,7 @@ Without C<-L>, the container is removed and the command exits.
 Shows what B<dozo -L> would do in this directory, and lists the live
 containers and the derived images (see L</Derived Images>):
 
-    here: /home/me/project
+    /home/me/project:
       image      tecolicom/xlate (/home/me/.dozorc)
       container  xlate.project, exited (found by label)
       --with     locale: dozo/xlate:locale-3580643729 (exists)

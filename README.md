@@ -486,7 +486,7 @@ of that directory; give another name with **-N**.  A name given by
     Shows what **dozo -L** would do in this directory, and lists the live
     containers and the derived images (see ["Derived Images"](#derived-images)):
 
-        here: /home/me/project
+        /home/me/project:
           image      tecolicom/xlate (/home/me/.dozorc)
           container  xlate.project, exited (found by label)
           --with     locale: dozo/xlate:locale-3580643729 (exists)

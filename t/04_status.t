@@ -139,7 +139,7 @@ subtest 'here' => sub {
     unlink "$home/.dozorc";
     my ($out, $st, $err) = status('-S -I alpine');
     is($st, 0, '-I: exit status');
-    like($out, qr/^here: \Q$work\E$/m, 'the directory');
+    like($out, qr/^\Q$work\E:$/m, 'the directory, as the heading');
     like($out, qr/^  image +alpine \(command line\)$/m, 'image from the command line');
     like($out, qr/^  container +alpine\.proj, (none|create)/m, 'no container: created');
 
