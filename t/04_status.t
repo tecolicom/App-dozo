@@ -195,6 +195,8 @@ subtest 'here' => sub {
         ($out, $st) = status('-S -I alpine');
         is($st, 0, 'other directory: exit status');
         like($out, qr/^  note +.*\/other\/proj/m, 'other directory: note');
+        like($out, qr/^  container +alpine\.proj, running \(found by name, from -I\)$/m,
+             'by name: no nested parentheses');
         ($out, $st) = status('-KL -S -I alpine');
         unlike($out, qr/would remove/, 'other directory, -KL: not removed');
         like($out, qr/-K +would stop/, 'other directory, -KL: would stop');

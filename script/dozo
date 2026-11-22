@@ -628,11 +628,11 @@ status_here() {
         fi
         from="label of $name"
     elif [[ $name ]]; then
-        how="by name (-N)"
+        how="found by name, -N"
     elif [[ $image_given ]]; then
-        how="by name (from -I)"
+        how="found by name, from -I"
     else
-        how="by name (from .dozorc)"
+        how="found by name, from .dozorc"
     fi
     if [[ $shown ]]; then
         status_line image "$shown ($from)"
