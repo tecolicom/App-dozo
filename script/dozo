@@ -664,6 +664,7 @@ status_here() {
             fi
         ) 2>&1 ) || :
         status_line --with "$(IFS=,; echo "${with_names[*]}"): ${check#"$myname: "}"
+        status_with_image=$( image=$shown; with_image -c > /dev/null 2>&1 && echo "$run_image" ) || :
     fi
     if [[ $id ]]; then
         if [[ $kill ]]; then
@@ -731,7 +732,7 @@ status_path() {
     echo "$p"
 }
 
-status_cleanup=()
+status_cleanup=() status_used=() status_with_image=
 
 # dozo's live containers: with the label dozo.mount, or with
 # DOZO_RUNNING_ON_DOCKER (made before the labels); not those of --rm
@@ -745,6 +746,8 @@ status_containers() {
             [[ $line ]] || continue
             # name status autoremove id image mount-label image-label marker source
             split_tab f "$line"
+            # an image a container uses cannot be removed
+            status_used+=("${f[4]}")
             [[ ${f[2]} == true ]] && continue
             [[ ${f[5]} || ${f[7]} ]] || continue
             notes=() mark=
@@ -771,11 +774,58 @@ status_containers() {
     fi
 }
 
+# The images made by --with (label dozo.base), and whether --with would
+# use them now: made from the features and the base images as they are
+status_images() {
+    local line f tags=() ids=() created=() labels=() rows=() i state mark tag u used
+    echo "derived images:"
+    while IFS= read -r line; do
+        [[ $line ]] || continue
+        split_tab f "$line"
+        tags+=("${f[0]}") ids+=("${f[1]}") created+=("${f[2]}")
+    done < <(command docker image ls --filter label=dozo.base \
+                 --format '{{.Repository}}:{{.Tag}}	{{.ID}}	{{.CreatedSince}}')
+    if (( ${#ids[@]} > 0 )); then
+        # by ID: an image whose tag is taken by a newer one is <none>:<none>
+        while IFS= read -r line; do labels+=("$line"); done < <(
+            command docker image inspect \
+                --format '{{index .Config.Labels "dozo.base"}}	{{index .Config.Labels "dozo.with"}}' \
+                "${ids[@]}")
+    fi
+    for i in "${!ids[@]}"; do
+        split_tab f "${labels[i]:-}"
+        tag=${tags[i]} mark=
+        state=$( (
+            image=${f[0]} run_image=
+            IFS=, read -ra with_names <<< "${f[1]:-}"
+            image_id "$image" > /dev/null || { echo "base gone"; exit; }
+            with_image -c > /dev/null 2>&1 || :
+            [[ $run_image ]] || exit 1
+            [[ $run_image == "$tag" ]] && echo current || echo outdated
+        ) ) || state="feature gone"
+        [[ $tag == "$status_with_image" ]] && mark='*'
+        if [[ $state != current ]]; then
+            used=
+            for u in "${status_used[@]}"; do [[ $u == "$tag" ]] && used=1; done
+            [[ $tag == "<none>:<none>" ]] && tag=${ids[i]}
+            [[ $used ]] || status_cleanup+=("docker image rm $tag")
+        fi
+        rows+=("$mark	${tags[i]}	${f[0]}	${f[1]:-}	$state	${created[i]}")
+    done
+    if (( ${#rows[@]} > 0 )); then
+        status_table "	IMAGE	BASE	WITH	STATE	CREATED" "${rows[@]}"
+    else
+        echo "  none"
+    fi
+}
+
 status_main() {
     local c
     status_here
     echo
     status_containers
+    echo
+    status_images
     if (( ${#status_cleanup[@]} > 0 )); then
         echo
         echo "to clean up:"

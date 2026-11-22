@@ -63,7 +63,7 @@ case $1 in
              elif [[ $2 == inspect && "$*" == *dozo.base* ]]; then
                  shift 4
                  for t; do
-                     awk -F'\t' -v t="$t" '$1 == t { print $4 "\t" $5 }' "$STUB_DERIVED"
+                     awk -F'\t' -v t="$t" '$2 == t { print $4 "\t" $5 }' "$STUB_DERIVED"
                  done
              elif [[ $STUB_IMAGES ]]; then
                  grep -qxF -- "${@: -1}" "$STUB_IMAGES" 2>/dev/null || exit 1
@@ -237,6 +237,53 @@ subtest 'live containers' => sub {
     put($rows, '');
     ($out, $st) = status('-S -I alpine');
     like($out, qr/^live containers:\n  none$/m, 'none');
+    unlike($out, qr/to clean up/, 'nothing to clean up');
+};
+
+subtest 'derived images' => sub {
+    unlink "$home/.dozorc";
+    put("$dir/images", "alpine\n");
+    `cd $work && $dozo -B -I alpine --with hello true 2>/dev/null`;
+    calls();
+    my ($tag) = grep m{^dozo/alpine:hello-}, split /\n/,
+        do { local (@ARGV, $/) = "$dir/images"; <> };
+    ok($tag, 'the current stage is made');
+    my $derived = "$dir/derived";
+    local $ENV{STUB_DERIVED} = $derived;
+    my $rows = "$dir/containers";
+    local $ENV{STUB_CONTAINERS} = $rows;
+    local $ENV{STUB_ALL_IDS} = 'id1';
+    put($rows, join("\t", '/x.proj', 'exited', 'false', 'sha256:z', 'dozo/alpine:hello-4',
+                    '/nonexistent/y', 'alpine', 'dozo', '/nonexistent/y') . "\n");
+    put($derived, join '', map { join("\t", @$_) . "\n" }
+        [$tag,                  'id01', '2 hours ago', 'alpine', 'hello'],
+        ['dozo/alpine:hello-1', 'id02', '3 days ago',  'alpine', 'hello'],
+        ['dozo/alpine:gone-2',  'id03', '4 days ago',  'alpine', 'gone'],
+        ['dozo/nob:x-3',        'id04', '5 days ago',  'nob',    'x'],
+        ['dozo/alpine:hello-4', 'id05', '6 days ago',  'alpine', 'hello'],
+    );
+    my ($out, $st) = status('-S --with hello -I alpine');
+    is($st, 0, 'exit status');
+    like($out, qr/^derived images:\n/m, 'header');
+    like($out, qr/^\* \Q$tag\E +alpine +hello +current +2 hours ago$/m, 'current, used here');
+    like($out, qr/^  dozo\/alpine:hello-1 +alpine +hello +outdated /m, 'outdated');
+    like($out, qr/^  dozo\/alpine:gone-2 .* feature gone /m, 'feature gone');
+    like($out, qr/^  dozo\/nob:x-3 .* base gone /m, 'base gone');
+    my ($clean) = $out =~ /^to clean up:\n((?:  .*\n?)*)/m;
+    ok($clean, 'cleanup section');
+    like($clean, qr/^  docker image rm dozo\/alpine:hello-1$/m, 'cleanup: outdated');
+    like($clean, qr/^  docker image rm dozo\/alpine:gone-2$/m, 'cleanup: feature gone');
+    like($clean, qr/^  docker image rm dozo\/nob:x-3$/m, 'cleanup: base gone');
+    unlike($clean, qr/hello-4|\Q$tag\E/, 'cleanup: not current, not used by a container');
+    like($clean, qr/^  docker rm x\.proj$/m, 'cleanup: the container too');
+
+    ($out, $st) = status('-S -I alpine');
+    like($out, qr/^  \Q$tag\E +alpine +hello +current /m, 'current, not used here: no mark');
+
+    put($derived, '');
+    put($rows, '');
+    ($out, $st) = status('-S -I alpine');
+    like($out, qr/^derived images:\n  none$/m, 'none');
     unlike($out, qr/to clean up/, 'nothing to clean up');
 };
 
