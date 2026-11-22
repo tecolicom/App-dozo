@@ -880,6 +880,15 @@ Repeatable.
 
 Specify additional docker options. Repeatable.
 
+=item B<--with>=I<name>[,I<name>...]
+
+Run the image with the named features added.  A feature is a piece of
+Dockerfile kept in F<~/.config/dozo/features/>, and the image made
+from the base image with the features applied in order is used instead
+of the base image.  Names are separated by comma, and the option is
+repeatable: values given in F<.dozorc> and on the command line
+accumulate (F<.dozorc> first).  See L</FEATURES> section for details.
+
 =back
 
 =head1 INTERACTIVE MODE
@@ -990,6 +999,103 @@ a new one. Useful when you need a fresh container state.
 Without C<-L>, the container is removed and the command exits.
 
 =back
+
+=head1 FEATURES
+
+A I<feature> is a named piece of Dockerfile that is added to any
+image.  It is a way to bring your usual setup (locale, dot files,
+environment variables, ...) to an image made by someone else:
+
+    dozo -I homebrew/brew --with ja-locale,home make test
+
+Features are not bundled with B<dozo>; you write your own.
+
+=head2 Feature Directory
+
+Features are looked up in
+F<${XDG_CONFIG_HOME:-$HOME/.config}/dozo/features/>.  A name which
+contains C</> or starts with C<.> is rejected, and a missing feature
+is an error.  A feature takes one of two forms.
+
+=over 4
+
+=item B<File>
+
+F<features/NAME> is a fragment of Dockerfile (C<RUN>, C<ENV>, C<USER>,
+and so on).
+
+=item B<Directory>
+
+F<features/NAME/Dockerfile> is the fragment, and the directory itself
+is the build context, so C<COPY> can copy files in it.  Note that
+F<Dockerfile> itself is also in the context and copied by
+C<COPY . ...>; list it in F<.dockerignore> if it matters.
+
+=back
+
+B<dozo> gives these values as Dockerfile C<ARG>:
+
+=over 4
+
+=item C<DOZO_USER>
+
+The user of the base image (C<root> if the image sets none).
+
+=item C<DOZO_HOME>
+
+The home directory of that user.
+
+=back
+
+A feature may switch to C<USER root>.  At the end of each feature,
+B<dozo> restores the original user of the base image (nothing is done
+if the image sets none).
+
+=head2 Examples
+
+F<features/ja-locale>:
+
+    USER root
+    RUN apt-get update && apt-get install -yq locales \
+        && locale-gen ja_JP.UTF-8
+    ENV LANG=ja_JP.UTF-8
+
+F<features/home/Dockerfile>, with other files in F<features/home/>:
+
+    COPY --chown=$DOZO_USER . $DOZO_HOME/
+    RUN exec >> $DOZO_HOME/.inputrc \
+        && echo Control-n: history-search-forward \
+        && echo Control-p: history-search-backward
+
+=head2 Derived Images
+
+Each feature makes one image on top of the previous one, tagged
+C<dozo/>I<base>C<:>I<name>C<->I<cksum>.  The checksum is made from
+the parent image and the content of the feature (for a directory, the
+names and contents of all files in it).  An image which already exists
+is reused and nothing is built, so the second and later runs are as
+fast as a plain run.  When a feature or the base image (for example
+updated by B<-A>) changes, the image is made again from that feature
+on, and earlier images are reused.  Put heavy features first.
+
+A base image which is not found locally is pulled automatically.
+Build output goes to the standard error, and is not shown with
+B<-q>.  If a build fails, the command is not run.  With B<-n>, the
+C<docker build> and C<docker run> commands are shown but nothing is
+built.
+
+With B<-L>, a new container is made from the derived image, but an
+existing container is not changed.  B<dozo> warns about it when its
+image differs; use B<-K> to recreate it:
+
+    dozo -I homebrew/brew --with ja-locale -KL
+
+Derived images are not removed automatically.  They have the labels
+C<dozo.base> (the base image) and C<dozo.with> (the features applied
+so far).  To list and remove them:
+
+    docker image ls --filter label=dozo.base
+    docker image rm $(docker image ls -q --filter label=dozo.base)
 
 =head1 CONFIGURATION FILE
 
