@@ -22,6 +22,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -I, --image=#      Docker image (required unless -D)
     -D, --default      use default image
     -A, --auto-pull    pull newer image before running
+    -F, --with=#       add features to the image (repeatable)
     -E, --env=#        environment variable to inherit (repeatable)
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
@@ -172,13 +173,15 @@ for option parsing.
 
 # OPTIONS
 
-Repeatable options (**-E**, **-V**, **-P** and **-O**) can be given more
-than once, and a single value is also split into multiple elements at
-spaces, tabs and commas.  Thus `-P 8000,9000` gives two port mappings,
-and **-O** with the value `--memory 2g` gives two docker options.  As a
-consequence, a value containing a space cannot be given as a single
-element: **-E** with the value `MSG=hello world` defines two variables,
-`MSG=hello` and `world`.
+Repeatable options (**-E**, **-V**, **-P**, **-O** and **--with**) can be
+given more than once, and a single value is also split into multiple
+elements at commas; spaces around a comma are ignored.  Thus
+`-P 8000,9000` gives two port mappings.  **-P** and **-O** are split
+at spaces and tabs as well, so **-O** with the value `--memory 2g`
+gives two docker options.  The others keep spaces in a value: **-E**
+with the value `MSG=hello world` defines one variable.  Use
+**--no-**_option_ (e.g. **--no-with**) to discard the values given so
+far, including those in `.dozorc`.
 
 - **-h**, **--help**
 
@@ -310,6 +313,17 @@ element: **-E** with the value `MSG=hello world` defines two variables,
 
     Specify additional docker options. Repeatable.
 
+- **-F** _name_\[/_arg_\]\[,...\], **--with**=_name_\[/_arg_\]\[,...\]
+
+    Run the image with the named features added.  A feature is a piece of
+    Dockerfile kept in `~/.config/dozo/features/` (or under
+    `XDG_CONFIG_HOME`), and the image made from the base image with the
+    features applied in order is used instead of the base image.  A name
+    may be followed by `/` and an argument for the feature.  Names are
+    separated by comma, and the option is repeatable: values given in
+    `.dozorc` and on the command line accumulate (`.dozorc` first).
+    See ["FEATURES"](#features) section for details.
+
 # INTERACTIVE MODE
 
 The container is started with Docker's `--interactive` option, and
@@ -377,11 +391,53 @@ For example, if you run:
 from `/home/user/project`, the container name would be
 `xlate.project`.
 
+The name is made from the last part of the image name only, without
+the tag, the owner or the registry: `alpine` and `alpine:3.18`, or
+`tecolicom/xlate` and `other/xlate`, give the same name, and an
+existing container is used for both.  When the image of the existing
+container differs from the one given by **-I**, **dozo** tells so; use
+**-K** to recreate the container, or **-N** to give another name.
+
 You can override the auto-generated name using the `-N` option:
 
     dozo -I tecolicom/xlate -L -N mycontainer
 
+The name also has only the last part of the mounted directory, so
+`/a/project` and `/b/project` give the same name.  A live container
+has the label `dozo.mount` with the full physical path of the
+mounted directory (a directory reached through a symlink is the same
+directory), `dozo.image` with the image given by **-I**, and
+`dozo.version` with the version of **dozo** that made it.  If the
+container found by a name made from **-I** is of another
+directory, **dozo** stops instead of running the command on the files
+of that directory; give another name with **-N**.  A name given by
+**-N** is not checked, and nor is a container made by an older
+**dozo**, which has no label.
+
 ## Managing Live Containers
+
+- **Use the container of this directory**
+
+        dozo -I myimage -L          # start working
+        dozo -L                     # later: connect to the same container
+        dozo -L make test           # run a command in it
+        dozo -KL                    # make it again from the same image
+        dozo -K                     # remove it
+
+    When neither **-I**, **-D** nor **-N** is on the command line, **-L**
+    and **-K** use the container made for the mounted directory, found by
+    its `dozo.mount` label.  In a git repository this is the top
+    directory, so the same container is used from any subdirectory.  If
+    there are several of them (made from different images), **dozo** lists
+    them; choose one with **-I** or **-N**.  **-KL** makes the container
+    again from the image in its `dozo.image` label.
+
+    An image set in `.dozorc` (by **-I** or **-D**) is a default: it is
+    used only when there is no container for the directory.  So with
+    **-D** in `~/.dozorc`, **dozo -L** connects to the container started
+    by **dozo -I myimage -L** in this directory, and to the one of the
+    default image elsewhere.  **-I** or **-D** on the command line always
+    chooses the container of that image.
 
 - **Attach to existing container**
 
@@ -410,6 +466,142 @@ You can override the auto-generated name using the `-N` option:
         dozo -I myimage -K
 
     Without `-L`, the container is removed and the command exits.
+
+# FEATURES
+
+A _feature_ is a named piece of Dockerfile that is added to any
+image.  It is a way to bring your usual setup (locale, dot files,
+environment variables, ...) to an image made by someone else:
+
+    dozo -I homebrew/brew --with locale,home make test
+
+Features are not bundled with **dozo**; you write your own.
+
+## Feature Directory
+
+Features are looked up in
+`${XDG_CONFIG_HOME:-$HOME/.config}/dozo/features/`.  A name which
+contains `/` or starts with `.` is rejected, and a missing feature
+is an error.  A feature takes one of two forms.
+
+- **File**
+
+    `features/NAME` is a fragment of Dockerfile (`RUN`, `ENV`, `USER`,
+    and so on).
+
+- **Directory**
+
+    `features/NAME/Dockerfile` is the fragment, and the directory itself
+    is the build context, so `COPY` can copy files in it.  Files made by
+    Finder and editors (`.DS_Store`, `*~`, `.*.sw?`, `#*#`, `.#*`)
+    do not cause a rebuild, but they are still in the context, and so is
+    `Dockerfile` itself; `COPY . ...` copies them too.  To keep them
+    out of the image, list them in `.dockerignore`:
+
+        Dockerfile
+        .dockerignore
+        .DS_Store
+        *~
+        .*.sw?
+
+**dozo** gives these values as Dockerfile `ARG`:
+
+- `DOZO_USER`
+
+    The user of the base image (`root` if the image sets none).
+
+- `DOZO_HOME`
+
+    The home directory of that user.
+
+- `DOZO_ARG`
+
+    The argument given as _name_`/`_arg_ (empty without it).
+
+A feature may switch to `USER root`.  At the end of each feature,
+**dozo** restores the original user of the base image (nothing is done
+if the image sets none).
+
+## Arguments
+
+A feature can take an argument, given after the first `/` of the
+name: `--with locale/ja_JP` passes `ja_JP` to the feature
+`locale` as `DOZO_ARG`.  Everything after the first `/` is the
+argument, so it may contain `/` itself (`zone/Asia/Tokyo`), and
+spaces when quoted, but not a comma, which separates features.
+`locale/` is the same as `locale`.  The argument is given by
+`docker build --build-arg`, and is available as `$DOZO_ARG` in the
+feature.
+
+Different arguments make different images, and each of them is
+reused.  **dozo** does not split the argument; to take several values,
+pick a separator and split it with `IFS` in the feature (see
+`features/locale` below):
+
+    dozo -I homebrew/brew --with locale/ja_JP+en_US make test
+
+## Examples
+
+`features/locale`, which makes UTF-8 locales on Debian and Ubuntu
+based images: `--with locale` makes `ja_JP.UTF-8`, and
+`--with locale/ja_JP+en_US` makes `ja_JP.UTF-8` and
+`en_US.UTF-8`.  **dozo** gives `LANG` of the host to the container,
+so making the locale is enough.
+
+    USER root
+    ARG DOZO_ARG
+    RUN command -v locale-gen > /dev/null \
+            || { apt-get update; apt-get install -yq locales; } \
+        && IFS=+ && for l in ${DOZO_ARG:-ja_JP}; do \
+               echo "$l.UTF-8 UTF-8" >> /etc/locale.gen; set -- "$@" "$l.UTF-8"; \
+           done \
+        && locale-gen --keep-existing "$@"
+
+- The `locales` package is installed only when `locale-gen` is
+missing.  Upgrading it rebuilds the locale archive from its
+configuration, and an image loses the locales it has made otherwise.
+- `apt-get update` is not checked, because an image may have a third
+party repository that fails.
+- Debian's `locale-gen` ignores its arguments and makes the locales
+listed in `/etc/locale.gen`, so they are written there as well.
+
+`features/home/Dockerfile`, with other files in `features/home/`:
+
+    COPY --chown=$DOZO_USER . $DOZO_HOME/
+    RUN exec >> $DOZO_HOME/.inputrc \
+        && echo Control-n: history-search-forward \
+        && echo Control-p: history-search-backward
+
+## Derived Images
+
+Each feature makes one image on top of the previous one, tagged
+`dozo/`_base_`:`_name_`-`_cksum_.  The checksum is made from
+the parent image, the content of the feature (for a directory, the
+names and contents of all files in it) and its argument.  An image
+which already exists is reused and nothing is built, so the second and
+later runs only add one image check per stage (a few tens of
+milliseconds).  When a feature or the base image (for example updated
+by **-A**) changes, the image is made again from that feature on, and
+earlier images are reused.  Put heavy features first.
+
+A base image which is not found locally is pulled automatically.
+Build output goes to the standard error, and is not shown with
+**-q**.  If a build fails, the command is not run.  With **-n**, the
+`docker build` and `docker run` commands are shown but nothing is
+built.
+
+With **-L**, a new container is made from the derived image, but an
+existing container is not changed.  **dozo** warns about it when its
+image differs; use **-K** to recreate it:
+
+    dozo -I homebrew/brew --with locale -KL
+
+Derived images are not removed automatically.  They have the labels
+`dozo.base` (the base image) and `dozo.with` (the features applied
+so far).  To list and remove them:
+
+    docker image ls --filter label=dozo.base
+    docker image rm $(docker image ls -q --filter label=dozo.base)
 
 # CONFIGURATION FILE
 
