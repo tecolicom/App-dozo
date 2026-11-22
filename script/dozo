@@ -213,8 +213,6 @@ docker() {
 pull_image() {
     if [[ $quiet ]]; then
         docker pull --quiet "$image" > /dev/null
-    elif [[ $dryrun ]]; then
-        docker pull "$image"
     else
         docker pull "$image" >&2
     fi || warn "cannot pull $image, using the local image"

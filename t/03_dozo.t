@@ -497,11 +497,17 @@ subtest '--with' => sub {
     # dryrun, two new stages and a missing base: pull, two builds, run
     $images->();
     $spit->("$fd/newtwo", "RUN true\n");
-    $out = `$dozo -n -I alpine --with newone,newtwo echo hi 2>/dev/null`;
+    $out = `$dozo -n -I alpine --with newone,newtwo echo hi 2>&1`;
     is($?, 0, 'dryrun: missing base, exit status');
-    like($out, qr/\Adocker pull alpine\ndocker build .*\ndocker build .*\ndocker run .* echo hi\n\z/,
+    like(join("\n", grep { /^docker / && !/^docker run image=/ } split /\n/, $out) . "\n",
+         qr/\Adocker pull alpine\ndocker build .*\ndocker build .*\ndocker run .* echo hi\n\z/,
          'dryrun: pull, build, build, run');
     unlike($calls->(), qr/^(?:pull|build|run) /m, 'dryrun: nothing really done');
+
+    # -A -n without --with: the pull line stays on stderr
+    $out = `$dozo -n -A -I alpine true 2>/dev/null`;
+    unlike($out, qr/docker pull/, '-A -n: no docker pull on stdout');
+    $calls->();
 };
 
 done_testing;
