@@ -393,7 +393,7 @@ subtest '--with' => sub {
     like($build[0], qr/-t dozo\/alpine:locale-\d+ -$/, 'file feature: no context');
     like($build[1], qr/-t dozo\/alpine:home-\d+ -f - \Q$fd\E\/home$/, 'directory feature: context');
     like($l, qr/^run .* dozo\/alpine:home-\d+ echo hi$/m, 'run the last stage');
-    like($dockerfile->(1), qr/\AFROM alpine\nARG DOZO_USER=root\nARG DOZO_HOME=\/root\nENV LANG=C.UTF-8\n\z/, 'generated Dockerfile');
+    like($dockerfile->(1), qr/\AFROM alpine\nARG DOZO_USER=root\nARG DOZO_HOME=\/root\nARG DOZO_ARG\nENV LANG=C.UTF-8\n\z/, 'generated Dockerfile');
 
     like($dockerfile->(2), qr/\AFROM dozo\/alpine:locale-\d+\n/, 'next stage is built FROM the previous tag');
 
@@ -542,6 +542,98 @@ subtest '--with' => sub {
     # -A -n without --with: the pull line stays on stderr
     $out = `$dozo -n -A -I alpine true 2>/dev/null`;
     unlike($out, qr/docker pull/, '-A -n: no docker pull on stdout');
+    $calls->();
+};
+
+subtest '--with NAME/ARG' => sub {
+    my $dir = Cwd::realpath(tempdir(CLEANUP => 1));
+    my $log = "$dir/log";
+    docker_stub($dir);
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    local $ENV{STUB_LOG} = $log;
+    local $ENV{HOME} = $dir;
+    local $ENV{XDG_CONFIG_HOME} = "$dir/config";
+    local $ENV{STUB_IMAGES} = "$dir/images";
+    my $calls = sub {
+        open my $in, '<', $log or return '';
+        my $text = do { local $/; <$in> };
+        close $in;
+        unlink $log;
+        $text;
+    };
+    my $fd = "$dir/config/dozo/features";
+    system('mkdir', '-p', $fd) == 0 or die;
+    for my $f (qw(locale tz x)) {
+        open my $o, '>', "$fd/$f" or die;
+        print $o "RUN echo \$DOZO_ARG\n";
+        close $o;
+    }
+    open my $o, '>', "$dir/images" or die;
+    print $o "alpine\n";
+    close $o;
+    my $tag_of = sub { ($_[0] =~ /-t (\S+)/)[0] };
+
+    # the tag of a feature without an argument is computed as before
+    my $old = `printf 'sha256:alpine\\n%s\\n' "\$(cksum < $fd/locale)" | cksum`;
+    $old =~ s/ .*//s;
+
+    my $out = `$dozo -I alpine --with locale echo hi 2>/dev/null`;
+    my ($b) = $calls->() =~ /^(build .*)$/m;
+    is($tag_of->($b), "dozo/alpine:locale-$old", 'no argument: same tag as before');
+    like($b, qr/--build-arg DOZO_ARG= /, 'no argument: DOZO_ARG is empty');
+
+    $out = `$dozo -I alpine --with locale/ja_JP+en_US echo hi 2>/dev/null`;
+    is($?, 0, 'exit status');
+    is($out, "ran\n", 'only the output of the command is on stdout');
+    my $l = $calls->();
+    ($b) = $l =~ /^(build .*)$/m;
+    like($b, qr/--build-arg DOZO_ARG=ja_JP\+en_US /, 'argument is passed');
+    like($b, qr/--label dozo\.with=locale\/ja_JP\+en_US /, 'label has NAME/ARG');
+    my $ja = $tag_of->($b);
+    like($ja, qr/^dozo\/alpine:locale_ja_JP_en_US-\d+$/, 'tag name from NAME/ARG');
+    isnt($ja, "dozo/alpine:locale-$old", 'argument changes the tag');
+    like($l, qr/^run .* \Q$ja\E echo hi$/m, 'run the stage');
+    open my $in, '<', "$log.dockerfile.2" or die;
+    my $df = do { local $/; <$in> };
+    unlike($df, qr/ja_JP/, 'the argument is not written in the Dockerfile');
+
+    `$dozo -I alpine --with locale/en_US echo hi 2>/dev/null`;
+    ($b) = $calls->() =~ /^(build .*)$/m;
+    isnt($tag_of->($b // ''), $ja, 'different arguments, different tags');
+
+    `$dozo -I alpine --with locale/ja_JP+en_US echo hi 2>/dev/null`;
+    unlike($calls->(), qr/^build/m, 'same argument: reused');
+
+    `$dozo -I alpine --with locale/ echo hi 2>/dev/null`;
+    $l = $calls->();
+    unlike($l, qr/^build/m, 'NAME/ is the same as NAME');
+    like($l, qr/^run .* dozo\/alpine:locale-$old echo hi$/m, 'NAME/ runs the NAME stage');
+
+    `$dozo -I alpine --with tz/Asia/Tokyo echo hi 2>/dev/null`;
+    like($calls->(), qr/--build-arg DOZO_ARG=Asia\/Tokyo /, 'argument with a slash');
+
+    `$dozo -I alpine --with "x/a b'c\\\$d" echo hi 2>/dev/null`;
+    like($calls->(), qr/--build-arg DOZO_ARG=a b'c\$d /, 'argument with special characters');
+
+    for my $bad ('../x/y', '.x/y', 'nosuch/y') {
+        my $err = `$dozo -I alpine --with '$bad' echo hi 2>&1 >/dev/null`;
+        isnt($?, 0, "bad name with an argument: $bad");
+        unlike($calls->(), qr/^(build|run )/m, "bad name with an argument: nothing done: $bad");
+    }
+
+    {
+        open my $rc, '>', "$dir/.dozorc" or die;
+        print $rc "--with 'locale/ja_JP x'\n";
+        close $rc;
+        `$dozo -I alpine --with tz/UTC echo hi 2>/dev/null`;
+        my @b = $calls->() =~ /^build .*$/mg;
+        like($b[0] // '', qr/--build-arg DOZO_ARG=ja_JP x /, '.dozorc value is kept whole');
+        like($b[1] // '', qr/--build-arg DOZO_ARG=UTC /, 'and the command line one follows');
+        unlink "$dir/.dozorc";
+    }
+
+    $out = `$dozo -n -I alpine --with tz/Europe/Paris echo hi 2>/dev/null`;
+    like($out, qr/^docker build .*--build-arg DOZO_ARG=Europe\/Paris /m, 'dryrun shows the argument');
     $calls->();
 };
 

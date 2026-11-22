@@ -180,6 +180,12 @@ SKIP: {
         `$dozo -I $image -B --with nosuch true 2>/dev/null`;
         isnt($? >> 8, 0, 'unknown feature fails');
 
+        # NAME/ARG: the feature splits DOZO_ARG with IFS
+        $put->("$fdir/split",
+               "ARG DOZO_ARG\nRUN IFS=+ && for v in \$DOZO_ARG; do echo \"[\$v]\"; done > /args\n");
+        $out = `$dozo -I $image -B --with 'split/a b+c/d' cat /args 2>/dev/null`;
+        is($out, "[a b]\n[c/d]\n", 'argument is split by the feature');
+
         # USER is restored after a feature that switches to root
         $put->("$fdir/asroot", "USER root\nRUN echo x > /x\n");
         my $df = tempdir(CLEANUP => 1);

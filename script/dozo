@@ -272,15 +272,17 @@ feature_env() {
 # feature_build FROM_NAME TAG NAME PATH
 # FROM_NAME is the image name for FROM: BuildKit does not take an ID
 feature_build() {
-    local parent=$1 tag=$2 name=$3 path=$4 src args
+    local parent=$1 tag=$2 name=$3 path=$4 arg=${5:-} src args
     src=$path
     [[ -d $path ]] && src=$path/Dockerfile
     [[ -r $src ]] || die "cannot read $src"
     feature_env
-    args=(build --label "dozo.base=$image" --label "dozo.with=${with_chain:-$name}" -t "$tag")
+    # the argument is given by --build-arg, not written in the Dockerfile
+    args=(build --label "dozo.base=$image" --label "dozo.with=${with_chain:-$name}"
+          --build-arg "DOZO_ARG=$arg" -t "$tag")
     if [[ -d $path ]]; then args+=(-f - "$path"); else args+=(-); fi
     {
-        printf 'FROM %s\nARG DOZO_USER=%s\nARG DOZO_HOME=%s\n' \
+        printf 'FROM %s\nARG DOZO_USER=%s\nARG DOZO_HOME=%s\nARG DOZO_ARG\n' \
                "$parent" "${build_user:-}" "${build_home:-}"
         printf '%s\n' "$(cat "$src")"
         if [[ ${orig_user:-} ]]; then printf 'USER %s\n' "$orig_user"; fi
@@ -297,12 +299,16 @@ feature_build() {
 # Make the image with the features on $image, and set run_image to it.
 # -c: do not build, return 1 when an image is missing.
 with_image() {
-    local check= n i from path parent_id tag sum base part value
-    local paths=()
+    local check= n i from path parent_id tag sum base part value arg
+    local paths=() names=() fargs=()
     [[ ${1:-} == -c ]] && check=1
+    # NAME/ARG: the argument is all after the first slash
     for n in "${with_names[@]}"; do
+        arg=
+        [[ $n == */* ]] && arg=${n#*/}
+        n=${n%%/*}
         path=$(feature_path "$n") || exit 1
-        paths+=("$path")
+        paths+=("$path") names+=("$n${arg:+/$arg}") fargs+=("$arg")
     done
     base=$myname
     [[ $image =~ (.*/)?([-_.a-zA-Z0-9]+) ]] && base=${BASH_REMATCH[2]}
@@ -324,10 +330,11 @@ with_image() {
     with_chain=
     from=$image
     for i in "${!with_names[@]}"; do
-        n=${with_names[i]} path=${paths[i]}
+        n=${names[i]} path=${paths[i]} arg=${fargs[i]}
         with_chain+=${with_chain:+,}$n
         sum=$(feature_sum "$path") || exit 1
-        sum=$(printf '%s\n%s\n' "$parent_id" "$sum" | cksum)
+        # without an argument, the tag is the same as before arguments
+        sum=$(printf '%s\n' "$parent_id" "$sum" ${arg:+"$arg"} | cksum)
         value=${sum%% *}
         part=${n//[^A-Za-z0-9_.-]/_}
         [[ $part == [-.]* ]] && part=_${part:1}
@@ -336,7 +343,7 @@ with_image() {
         # one inspect finds the stage and gives the ID for the next parent
         if ! parent_id=$(image_id "$tag"); then
             [[ $check ]] && return 1
-            feature_build "$from" "$tag" "$n" "$path"
+            feature_build "$from" "$tag" "$n" "$path" "$arg"
             # dryrun: the stage was only shown, the tag stands for its ID
             parent_id=$(image_id "$tag") || { [[ $dryrun ]] && parent_id=$tag; } \
                 || die "cannot find image $tag"
@@ -421,6 +428,11 @@ END
 
 default() { image="${DOZO_DEFAULT_IMAGE:-$default_image}"; }
 
+# --with: keep each value whole (getoptlong would split a list option
+# at spaces too, and NAME/ARG may contain spaces); split at commas below
+with_values=()
+with() { with_values+=("$2"); }
+
 declare -A OPTS=(
     [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0
     [       help | h ! # show help                       ]=
@@ -446,7 +458,7 @@ declare -A OPTS=(
     [       kill | K   # kill existing container         ]=
     [       port | P @ # port mapping                    ]=
     [      other | O @ # additional docker option        ]=
-    [       with |   @ # add features to the image        ]=
+    [       with |   :! # add features to the image       ]=
 )
 
 ##############################################################################
@@ -465,7 +477,7 @@ for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
 # --with: names separated by commas, in the order given
 with_names=()
-for _w in "${with[@]}"; do
+for _w in "${with_values[@]}"; do
     IFS=, read -ra _parts <<< "$_w"
     for _p in "${_parts[@]}"; do [[ $_p ]] && with_names+=("$_p"); done
 done
@@ -897,14 +909,16 @@ Repeatable.
 
 Specify additional docker options. Repeatable.
 
-=item B<--with>=I<name>[,I<name>...]
+=item B<--with>=I<name>[/I<arg>][,I<name>[/I<arg>]...]
 
 Run the image with the named features added.  A feature is a piece of
-Dockerfile kept in F<~/.config/dozo/features/>, and the image made
-from the base image with the features applied in order is used instead
-of the base image.  Names are separated by comma, and the option is
-repeatable: values given in F<.dozorc> and on the command line
-accumulate (F<.dozorc> first).  See L</FEATURES> section for details.
+Dockerfile kept in F<~/.config/dozo/features/> (or under
+C<XDG_CONFIG_HOME>), and the image made from the base image with the
+features applied in order is used instead of the base image.  A name
+may be followed by C</> and an argument for the feature.  Names are
+separated by comma, and the option is repeatable: values given in
+F<.dozorc> and on the command line accumulate (F<.dozorc> first).
+See L</FEATURES> section for details.
 
 =back
 
@@ -1070,20 +1084,50 @@ The user of the base image (C<root> if the image sets none).
 
 The home directory of that user.
 
+=item C<DOZO_ARG>
+
+The argument given as I<name>C</>I<arg> (empty without it).
+
 =back
 
 A feature may switch to C<USER root>.  At the end of each feature,
 B<dozo> restores the original user of the base image (nothing is done
 if the image sets none).
 
+=head2 Arguments
+
+A feature can take an argument, given after the first C</> of the
+name: C<--with locale/ja_JP> passes C<ja_JP> to the feature
+F<locale> as C<DOZO_ARG>.  Everything after the first C</> is the
+argument, so it may contain C</> itself (C<tz/Asia/Tokyo>), and
+spaces when quoted.  C<locale/> is the same as C<locale>.  The
+argument is given by C<docker build --build-arg>, and a feature reads
+it with C<ARG DOZO_ARG>.
+
+Different arguments make different images, and each of them is
+reused.  B<dozo> does not split the argument; to take several values,
+pick a separator and split it with C<IFS> in the feature:
+
+    dozo -I homebrew/brew --with locale/ja_JP+en_US,tz/Asia/Tokyo make test
+
 =head2 Examples
 
-F<features/ja-locale>:
+F<features/ja-locale> (for Ubuntu based images; C<apt-get update> is
+not checked, because an image may have a third party repository that
+fails, as F<homebrew/brew> does):
 
     USER root
-    RUN apt-get update && apt-get install -yq locales \
+    RUN apt-get update; apt-get install -yq locales \
         && locale-gen ja_JP.UTF-8
     ENV LANG=ja_JP.UTF-8
+
+F<features/locale>, which takes language names separated by C<+>
+(C<--with locale/ja_JP+en_US>):
+
+    USER root
+    ARG DOZO_ARG
+    RUN apt-get update; apt-get install -yq locales \
+        && IFS=+ && for l in $DOZO_ARG; do locale-gen $l.UTF-8; done
 
 F<features/home/Dockerfile>, with other files in F<features/home/>:
 
@@ -1096,12 +1140,13 @@ F<features/home/Dockerfile>, with other files in F<features/home/>:
 
 Each feature makes one image on top of the previous one, tagged
 C<dozo/>I<base>C<:>I<name>C<->I<cksum>.  The checksum is made from
-the parent image and the content of the feature (for a directory, the
-names and contents of all files in it).  An image which already exists
-is reused and nothing is built, so the second and later runs only
-add one image check per stage (a few tens of milliseconds).  When a feature or the base image (for example
-updated by B<-A>) changes, the image is made again from that feature
-on, and earlier images are reused.  Put heavy features first.
+the parent image, the content of the feature (for a directory, the
+names and contents of all files in it) and its argument.  An image
+which already exists is reused and nothing is built, so the second and
+later runs only add one image check per stage (a few tens of
+milliseconds).  When a feature or the base image (for example updated
+by B<-A>) changes, the image is made again from that feature on, and
+earlier images are reused.  Put heavy features first.
 
 A base image which is not found locally is pulled automatically.
 Build output goes to the standard error, and is not shown with
