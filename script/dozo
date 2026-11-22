@@ -502,10 +502,10 @@ fi
 warn() { [[ $quiet ]] || echo "$*" >&2; }
 for _m in "${_warn_buffer[@]}"; do warn "$_m"; done; _warn_buffer=()
 
-# --with: names separated by commas, in the order given
 # List options are split at commas only ([&DELIM] above), so that -E,
 # -V and --with can take a value with spaces.  Trim each element, and
-# split -P and -O at spaces too, as their values never contain one.
+# split -P and -O at spaces too, but not at a space escaped with a
+# backslash (read without -r), as before.
 list_trim() {
     local -n _list=$1
     local _v _new=()
@@ -520,13 +520,14 @@ list_split() {
     local -n _list=$1
     local _v _w _new=()
     for _v in "${_list[@]}"; do
-        read -ra _w <<< "$_v"
+        read -a _w <<< "$_v"
         _new+=("${_w[@]}")
     done
     _list=("${_new[@]}")
 }
 list_trim env; list_trim volume; list_trim with
 list_split port; list_split other
+# --with: names separated by commas, in the order given
 with_names=("${with[@]}")
 
 # Apply options

@@ -875,4 +875,19 @@ subtest 'list options' => sub {
     like($run->(q(-P 8000,9000)), qr/\[-p\]\[8000:8000\]\[-p\]\[9000:9000\]/, '-P: comma');
 };
 
+subtest '-O and -P: an escaped space is not a separator' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    open my $fh, '>', "$dir/docker" or die;
+    print $fh qq{#!/bin/bash\n[[ \$1 == run ]] && printf '[%s]\\n' "\$@"\nexit 0\n};
+    close $fh;
+    chmod 0755, "$dir/docker" or die;
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    my $args = `$dozo -B -I alpine -E 'X=a\\b' -O 'a\\ b' -O 'c d' true 2>/dev/null`;
+    # getoptlong.sh 1.3.0 and older removes backslashes from the values
+    plan skip_all => 'getoptlong.sh removes backslashes (tecolicom/getoptlong#4)'
+        unless $args =~ /^\[X=a\\b\]$/m;
+    like($args, qr/^\[a b\]$/m, 'escaped space: one argument');
+    like($args, qr/^\[c\]\n\[d\]$/m, 'space: two arguments');
+};
+
 done_testing;
