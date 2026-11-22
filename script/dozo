@@ -529,7 +529,9 @@ container_workdir="${workdir}${relative:+/${relative}}"
 # Without an image and a name, -L and -K use the container of this
 # directory.  A name made from -I must not be of another directory:
 # the container would run the command on the files of that directory.
-live_mount=${mount_dir:-$cwd}
+# The physical path, so that a directory reached through a symlink is
+# the same directory
+live_mount=$(cd "${mount_dir:-$cwd}" 2>/dev/null && pwd -P) || live_mount=${mount_dir:-$cwd}
 name_given=$name
 if [[ ($live || $kill) && ! $image && ! $name ]]; then
     found=()
@@ -538,7 +540,15 @@ if [[ ($live || $kill) && ! $image && ! $name ]]; then
     if (( ${#found[@]} > 1 )); then
         die "containers for $live_mount: ${found[*]}; choose one with -I or -N"
     fi
-    (( ${#found[@]} == 1 )) && name=${found[0]} name_given=$name
+    if (( ${#found[@]} == 1 )); then
+        name=${found[0]} name_given=$name
+        # -KL makes it again: from the image it was made from
+        if [[ $kill && $live ]]; then
+            image=$(command docker inspect \
+                        --format '{{index .Config.Labels "dozo.image"}}' "$name") || image=
+            [[ $image ]] || die "the image of container $name is unknown; give it with -I"
+        fi
+    fi
 fi
 
 # die if the container ID is of another directory
@@ -624,6 +634,7 @@ if [[ $live ]]; then
         live_exec "$id" "$@"
         exit
     fi
+    [[ $image ]] || die "no live container for $live_mount; an image must be specified with -I"
     warn "create live container \"$container\""
 fi
 
@@ -673,7 +684,8 @@ else
 fi
 [[ ! $live       ]] && dockopt+=(--rm)
 [[   $live       ]] && dockopt+=(--name "$container"
-                         --label "dozo.mount=$live_mount" --label "dozo.version=$my_version")
+                         --label "dozo.mount=$live_mount" --label "dozo.image=$image"
+                         --label "dozo.version=$my_version")
 [[ -e $localtime ]] && dockopt+=(-v $localtime:$localtime:ro)
 [[ ! $unmount    ]] && dockopt+=(
         -v "${mount_dir:-$cwd}:${workdir}:${mount_mode}"
@@ -1061,11 +1073,13 @@ You can override the auto-generated name using the C<-N> option:
 
     dozo -I tecolicom/xlate -L -N mycontainer
 
-Only the last part of the mounted directory is in the name either, so
+The name also has only the last part of the mounted directory, so
 F</a/project> and F</b/project> give the same name.  A live container
-has the label C<dozo.mount> with the full path of the mounted
-directory (and C<dozo.version> with the version of B<dozo> that made
-it).  If the container found by a name made from B<-I> is of another
+has the label C<dozo.mount> with the full physical path of the
+mounted directory (a directory reached through a symlink is the same
+directory), C<dozo.image> with the image given by B<-I>, and
+C<dozo.version> with the version of B<dozo> that made it.  If the
+container found by a name made from B<-I> is of another
 directory, B<dozo> stops instead of running the command on the files
 of that directory; give another name with B<-N>.  A name given by
 B<-N> is not checked, and nor is a container made by an older
@@ -1080,14 +1094,16 @@ B<dozo>, which has no label.
     dozo -I myimage -L          # start working
     dozo -L                     # later: connect to the same container
     dozo -L make test           # run a command in it
+    dozo -KL                    # make it again from the same image
     dozo -K                     # remove it
 
-Without B<-I> (nor B<-D> or an image in F<.dozorc>) and B<-N>,
-B<-L> and B<-K> use the container made for the mounted directory,
-found by its C<dozo.mount> label.  In a git repository this is the
-top directory, so the same container is used from any subdirectory.
-If there are several of them (made from different images), B<dozo>
-lists them; choose one with B<-I> or B<-N>.
+When no image is given (no B<-I>, B<-D> or image in F<.dozorc>) and
+no B<-N>, B<-L> and B<-K> use the container made for the mounted
+directory, found by its C<dozo.mount> label.  In a git repository
+this is the top directory, so the same container is used from any
+subdirectory.  If there are several of them (made from different
+images), B<dozo> lists them; choose one with B<-I> or B<-N>.  B<-KL>
+makes the container again from the image in its C<dozo.image> label.
 
 =item B<Attach to existing container>
 

@@ -195,10 +195,12 @@ case $1 in
     ps)      if [[ " $* " == *" --format "* ]]; then
                  for n in $STUB_LABELED; do echo "$n"; done
              else
-                 [[ ! $STUB_CONTAINER ]] || echo abc123
+                 [[ ! $STUB_CONTAINER || -e $STUB_LOG.removed ]] || echo abc123
              fi ;;
+    rm)      touch "$STUB_LOG.removed" ;;
     inspect) if [[ $2 == --format && $3 == '{{.Image}}' ]]; then echo "$STUB_CONTAINER_IMAGE"
              elif [[ $3 == *dozo.mount* ]]; then echo "$STUB_CONTAINER_MOUNT"
+             elif [[ $3 == *dozo.image* ]]; then echo "$STUB_CONTAINER_IMAGE_NAME"
              else echo running; fi ;;
     image)   if [[ $STUB_IMAGES ]]; then
                  grep -qxF -- "${@: -1}" "$STUB_IMAGES" 2>/dev/null || exit 1
@@ -239,7 +241,7 @@ subtest '-A' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
 
@@ -295,7 +297,7 @@ subtest '-L creates a container, then execs the command' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
 
@@ -365,7 +367,7 @@ subtest '--with' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
     my $spit = sub {
@@ -563,7 +565,7 @@ subtest '--with NAME/ARG' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
     my $fd = "$dir/config/dozo/features";
@@ -675,7 +677,7 @@ subtest '-L and -I' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
 
@@ -721,7 +723,7 @@ subtest '-L finds the container by directory' => sub {
         open my $in, '<', $log or return '';
         my $text = do { local $/; <$in> };
         close $in;
-        unlink $log;
+        unlink $log, "$log.removed";
         $text;
     };
     my $dozo_in = sub { scalar `cd $work && $dozo @_` };
@@ -749,6 +751,32 @@ subtest '-L finds the container by directory' => sub {
 
         $out = $dozo_in->('-L -I alpine echo hi 2>/dev/null');
         unlike($calls->(), qr/--filter label=/, 'with -I: no lookup');
+
+        $out = $dozo_in->('-L -D echo hi 2>/dev/null');
+        unlike($calls->(), qr/--filter label=/, 'with -D: no lookup');
+
+        {
+            local $ENV{STUB_CONTAINER_IMAGE_NAME} = 'alpine:3.18';
+            $out = $dozo_in->('-B -KL echo hi 2>/dev/null');
+            $l = $calls->();
+            like($l, qr/^rm -f alpine\.proj$/m, '-KL without -I: removed');
+            like($l, qr/^run .* alpine:3\.18$/m, '-KL without -I: made again from the image of the label');
+        }
+        {
+            local $ENV{STUB_CONTAINER_IMAGE_NAME} = '';
+            my $err = $dozo_in->('-B -KL echo hi 2>&1 >/dev/null');
+            isnt($?, 0, '-KL without -I, image unknown: error');
+            unlike($calls->(), qr/^rm /m, '-KL without -I, image unknown: not removed');
+        }
+    }
+    {
+        # the label has the physical path
+        symlink $work, "$dir/link" or die;
+        local $ENV{STUB_CONTAINER} = '';
+        `cd $dir/link && $dozo -L -I alpine echo hi 2>/dev/null`;
+        like($calls->(), qr/^run .*--label dozo\.mount=\Q$work\E /m, 'through a symlink: the label has the real path');
+        `cd $dir/link && $dozo -L -I alpine echo hi 2>/dev/null`;
+        like($calls->(), qr/^run .*--label dozo\.image=alpine /m, 'the image label');
     }
     {
         local $ENV{STUB_LABELED} = 'alpine.proj debian.proj';
@@ -761,7 +789,8 @@ subtest '-L finds the container by directory' => sub {
         local $ENV{STUB_LABELED} = '';
         local $ENV{STUB_CONTAINER} = '';
         my $err = $dozo_in->('-L echo hi 2>&1 >/dev/null');
-        like($err, qr/must be specified/, 'no container: the image is required as before');
+        like($err, qr/no live container for \Q$work\E.*-I/, 'no container: the image is required');
+        unlike($err, qr/create live container/, 'no container: nothing is said to be created');
         $calls->();
     }
     {
