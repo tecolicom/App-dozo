@@ -213,6 +213,8 @@ docker() {
 pull_image() {
     if [[ $quiet ]]; then
         docker pull --quiet "$image" > /dev/null
+    elif [[ $dryrun ]]; then
+        docker pull "$image"
     else
         docker pull "$image" >&2
     fi || warn "cannot pull $image, using the local image"
@@ -252,6 +254,7 @@ image_id() { command docker image inspect --format '{{.Id}}' "$1" 2>/dev/null; }
 # Find the user and the home directory of the base image, once
 feature_env() {
     [[ ${build_home:-} ]] && return
+    [[ $dryrun ]] && return    # nothing is run, and the build is only shown
     orig_user=$(command docker image inspect --format '{{.Config.User}}' "$image" 2>/dev/null) || orig_user=
     build_user=${orig_user:-root}
     build_home=$(command docker run --rm --entrypoint sh \
@@ -272,10 +275,13 @@ feature_build() {
     if [[ -d $path ]]; then args+=(-f - "$path"); else args+=(-); fi
     {
         printf 'FROM %s\nARG DOZO_USER=%s\nARG DOZO_HOME=%s\n' \
-               "$parent" "$build_user" "$build_home"
+               "$parent" "${build_user:-}" "${build_home:-}"
         printf '%s\n' "$(cat "$src")"
-        if [[ $orig_user ]]; then printf 'USER %s\n' "$orig_user"; fi
-    } | if [[ $quiet ]]; then
+        if [[ ${orig_user:-} ]]; then printf 'USER %s\n' "$orig_user"; fi
+    } | if [[ $dryrun ]]; then
+        cat > /dev/null    # the Dockerfile is not used: keep the writer from SIGPIPE
+        if [[ $quiet ]]; then docker "${args[@]}" > /dev/null; else docker "${args[@]}"; fi
+    elif [[ $quiet ]]; then
         docker "${args[@]:0:1}" --quiet "${args[@]:1}" > /dev/null
     else
         docker "${args[@]}" >&2
@@ -297,7 +303,9 @@ with_image() {
     if ! parent_id=$(image_id "$image"); then
         [[ $check ]] && return 1
         pull_image
-        parent_id=$(image_id "$image") || die "cannot find image $image"
+        # dryrun: the pull was only shown, the image ID stays unknown
+        parent_id=$(image_id "$image") || { [[ $dryrun ]] && parent_id=$image; } \
+            || die "cannot find image $image"
     fi
     with_chain=
     from=$image
@@ -315,7 +323,9 @@ with_image() {
             [[ $check ]] && return 1
             feature_build "$from" "$tag" "$n" "$path"
         fi
-        parent_id=$(image_id "$tag") || die "cannot find image $tag"
+        # dryrun: the stage was only shown, the tag stands for its ID
+        parent_id=$(image_id "$tag") || { [[ $dryrun ]] && parent_id=$tag; } \
+            || die "cannot find image $tag"
         from=$tag
         run_image=$tag
     done
@@ -502,6 +512,12 @@ if [[ $live ]]; then
     container=$(container_name)
     if id=$(docker_find "$container"); then
         [[ $auto_pull ]] && warn "-A does not change existing container $container, use -K to recreate it"
+        if (( ${#with_names[@]} > 0 )); then
+            if ! with_image -c || [[ $(command docker inspect --format '{{.Image}}' "$id") \
+                                   != $(image_id "$run_image") ]]; then
+                warn "--with does not change existing container $container, use -K to recreate it"
+            fi
+        fi
         container_status=$(docker_status "$id")
         case $container_status in
             created|exited)

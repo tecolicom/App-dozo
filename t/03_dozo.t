@@ -193,7 +193,8 @@ case $1 in
              [[ ! $STUB_PULL_ADDS ]] || echo "$2" >> "$STUB_IMAGES"
              [[ ! $STUB_PULL_FAILS ]] ;;
     ps)      [[ ! $STUB_CONTAINER ]] || echo abc123 ;;
-    inspect) echo running ;;
+    inspect) if [[ $2 == --format && $3 == '{{.Image}}' ]]; then echo "$STUB_CONTAINER_IMAGE"
+             else echo running; fi ;;
     image)   if [[ $STUB_IMAGES ]]; then
                  grep -qxF -- "${@: -1}" "$STUB_IMAGES" 2>/dev/null || exit 1
                  case $4 in
@@ -458,6 +459,49 @@ subtest '--with' => sub {
 
     `$dozo -I alpine echo hi 2>/dev/null`;
     unlike($calls->(), qr/^image inspect --format \{\{\.Id/m, 'no --with: no image inspect');
+
+    # -L, no container: created from the derived image, named after the original
+    $images->('alpine');
+    $out = `$dozo -L -I alpine --with locale echo hi 2>/dev/null`;
+    my $log = $calls->();
+    like($log, qr/^run .*--name alpine\.\S+ .*dozo\/alpine:locale-\d+$/m, '-L: named after the original image');
+    like($log, qr/^run .*--hostname alpine\b/m, '-L: hostname from the original image');
+
+    # -L, existing container on the same image: no notice
+    open my $im, '<', "$dir/images" or die;
+    my ($locale) = grep /^dozo\/alpine:locale-/, map { chomp; $_ } <$im>;
+    close $im;
+    {
+        local $ENV{STUB_CONTAINER} = 1;
+        local $ENV{STUB_CONTAINER_IMAGE} = "sha256:$locale";
+        $out = `$dozo -L -I alpine --with locale echo hi 2>&1`;
+        unlike($out, qr/-K/, 'same image: no notice');
+        $calls->();
+
+        # -L, existing container on another image: notice, and nothing is built
+        $out = `$dozo -L -I alpine --with locale,home echo hi 2>&1`;
+        like($out, qr/--with does not change existing container \S+, use -K to recreate it/, 'different image: notice');
+        unlike($calls->(), qr/^build/m, 'existing container: nothing is built');
+    }
+
+    # dryrun: shows build and run, builds nothing, runs no probe
+    $spit->("$fd/newone", "RUN true\n");
+    $out = `$dozo -n -I alpine --with newone echo hi 2>/dev/null`;
+    is($?, 0, 'dryrun: exit status');
+    like($out, qr/^docker build .* -t dozo\/alpine:newone-\d+ /m, 'dryrun shows docker build');
+    like($out, qr/^docker run .* dozo\/alpine:newone-\d+ echo hi$/m, 'dryrun shows docker run');
+    $log = $calls->();
+    unlike($log, qr/^build/m, 'dryrun builds nothing');
+    unlike($log, qr/^run /m, 'dryrun runs nothing');
+
+    # dryrun, two new stages and a missing base: pull, two builds, run
+    $images->();
+    $spit->("$fd/newtwo", "RUN true\n");
+    $out = `$dozo -n -I alpine --with newone,newtwo echo hi 2>/dev/null`;
+    is($?, 0, 'dryrun: missing base, exit status');
+    like($out, qr/\Adocker pull alpine\ndocker build .*\ndocker build .*\ndocker run .* echo hi\n\z/,
+         'dryrun: pull, build, build, run');
+    unlike($calls->(), qr/^(?:pull|build|run) /m, 'dryrun: nothing really done');
 };
 
 done_testing;
