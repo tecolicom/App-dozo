@@ -24,6 +24,7 @@ dozo -I IMAGE \[ options \] \[ command ... \]
     -A, --auto-pull    pull newer image before running
     -F, --with=#       add features to the image (repeatable)
     -E, --env=#        environment variable to inherit (repeatable)
+        --no-secrets   do not inherit API keys and other secrets
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
     -U, --unmount      do not mount any directory
@@ -144,7 +145,8 @@ for option parsing.
 
     Common environment variables are automatically inherited: `LANG`,
     `TZ`, proxy settings, terminal settings, and API keys for AI/LLM
-    services (DeepL, OpenAI, Anthropic, Perplexity).
+    services (DeepL, OpenAI, Anthropic, Perplexity).  **--no-secrets** stops
+    the API keys, and **--no-env** all of these.
 
 - **Flexible Mounting**
 
@@ -182,7 +184,8 @@ at spaces and tabs as well, so **-O** with the value `--memory 2g`
 gives two docker options.  The others keep spaces in a value: **-E**
 with the value `MSG=hello world` defines one variable.  Use
 **--no-**_option_ (e.g. **--no-with**) to discard the values given so
-far, including those in `.dozorc`.
+far, including those in `.dozorc`, and for **-E** the default
+variables as well.
 
 - **-h**, **--help**
 
@@ -255,6 +258,16 @@ far, including those in `.dozorc`.
 
     Specify environment variable to pass to the container. If _value_ is
     omitted, the value is inherited from the host environment. Repeatable.
+    The default variables (see ["Inherited Variables"](#inherited-variables)) are its initial
+    values, so **--no-env** drops them as well as the values given so far,
+    and **-E** after it gives the variables to pass.
+
+- **--no-secrets**
+
+    Do not inherit the secrets, the API keys among the default variables
+    (see ["Inherited Variables"](#inherited-variables)), including those given with **-E**
+    before it.  **-E** after it can add one back, and **--secrets** puts them
+    all back.
 
 - **-W**, **--mount-cwd**
 
@@ -771,7 +784,8 @@ and PowerPoint (.pptx) files directly with git
 - Based on Ubuntu with Japanese locale (ja\_JP.UTF-8)
 - Perl and Python3 runtime environments
 - Common API keys are automatically inherited from host
-(DEEPL\_AUTH\_KEY, OPENAI\_API\_KEY, ANTHROPIC\_API\_KEY, etc.)
+(DEEPL\_AUTH\_KEY, OPENAI\_API\_KEY, ANTHROPIC\_API\_KEY, etc.),
+unless **--no-secrets** is given
 
 # ENVIRONMENT
 
@@ -790,7 +804,14 @@ The following environment variables are inherited by default:
     LANG TZ
     HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
     TERM_PROGRAM TERM_BGCOLOR COLORTERM
+
+and the secrets, unless **--no-secrets** is given:
+
     DEEPL_AUTH_KEY OPENAI_API_KEY ANTHROPIC_API_KEY LLM_PERPLEXITY_KEY
+
+**--no-env** drops both; then only the variables given with **-E** after
+it are inherited.  `HOME` of **-H** and the ["Container Variables"](#container-variables)
+are set in any case.
 
 ## Container Variables
 

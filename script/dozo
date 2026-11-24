@@ -34,6 +34,7 @@ dozo -I IMAGE [ options ] [ command ... ]
     -A, --auto-pull    pull newer image before running
     -F, --with=#       add features to the image (repeatable)
     -E, --env=#        environment variable to inherit (repeatable)
+        --no-secrets   do not inherit API keys and other secrets
     -W, --mount-cwd    mount current working directory
     -H, --mount-home   mount home directory
     -U, --unmount      do not mount any directory
@@ -1171,7 +1172,8 @@ the image name and mount directory.
 
 Common environment variables are automatically inherited: C<LANG>,
 C<TZ>, proxy settings, terminal settings, and API keys for AI/LLM
-services (DeepL, OpenAI, Anthropic, Perplexity).
+services (DeepL, OpenAI, Anthropic, Perplexity).  B<--no-secrets> stops
+the API keys, and B<--no-env> all of these.
 
 =item B<Flexible Mounting>
 
@@ -1211,7 +1213,8 @@ at spaces and tabs as well, so B<-O> with the value C<--memory 2g>
 gives two docker options.  The others keep spaces in a value: B<-E>
 with the value C<MSG=hello world> defines one variable.  Use
 B<--no->I<option> (e.g. B<--no-with>) to discard the values given so
-far, including those in F<.dozorc>.
+far, including those in F<.dozorc>, and for B<-E> the default
+variables as well.
 
 =over 7
 
@@ -1286,6 +1289,16 @@ from; use C<-KL> to recreate it.
 
 Specify environment variable to pass to the container. If I<value> is
 omitted, the value is inherited from the host environment. Repeatable.
+The default variables (see L</Inherited Variables>) are its initial
+values, so B<--no-env> drops them as well as the values given so far,
+and B<-E> after it gives the variables to pass.
+
+=item B<--no-secrets>
+
+Do not inherit the secrets, the API keys among the default variables
+(see L</Inherited Variables>), including those given with B<-E>
+before it.  B<-E> after it can add one back, and B<--secrets> puts them
+all back.
 
 =item B<-W>, B<--mount-cwd>
 
@@ -1865,7 +1878,8 @@ and PowerPoint (.pptx) files directly with git
 =item * Perl and Python3 runtime environments
 
 =item * Common API keys are automatically inherited from host
-(DEEPL_AUTH_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+(DEEPL_AUTH_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.),
+unless B<--no-secrets> is given
 
 =back
 
@@ -1890,7 +1904,14 @@ The following environment variables are inherited by default:
     LANG TZ
     HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
     TERM_PROGRAM TERM_BGCOLOR COLORTERM
+
+and the secrets, unless B<--no-secrets> is given:
+
     DEEPL_AUTH_KEY OPENAI_API_KEY ANTHROPIC_API_KEY LLM_PERPLEXITY_KEY
+
+B<--no-env> drops both; then only the variables given with B<-E> after
+it are inherited.  C<HOME> of B<-H> and the L</Container Variables>
+are set in any case.
 
 =head2 Container Variables
 
