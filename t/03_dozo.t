@@ -875,6 +875,75 @@ subtest 'list options' => sub {
     like($run->(q(-P 8000,9000)), qr/\[-p\]\[8000:8000\]\[-p\]\[9000:9000\]/, '-P: comma');
 };
 
+subtest 'default environment variables' => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    open my $fh, '>', "$dir/docker" or die;
+    print $fh "#!/bin/bash\n[[ \$1 == run ]] && printf '[%s]' \"\$\@\"\nexit 0\n";
+    close $fh;
+    chmod 0755, "$dir/docker" or die;
+    local $ENV{PATH} = "$dir:$ENV{PATH}";
+    # fails unless docker run is reached, so that unlike() does not pass on an error
+    my $run = sub {
+        my $o = `$dozo -U -I alpine @_ true 2>/dev/null`;
+        fail("docker run for: @_") unless $o =~ /^\[run\]/;
+        $o;
+    };
+    my $keys = qr/\[(?:DEEPL_AUTH_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|LLM_PERPLEXITY_KEY)\]/;
+
+    my $out = $run->('');
+    like($out, qr/\[-e\]\[LANG\]/, 'default: LANG');
+    like($out, qr/\[-e\]\[OPENAI_API_KEY\]/, 'default: keys');
+
+    $out = $run->('--no-secrets');
+    like($out, qr/\[-e\]\[LANG\]/, '--no-secrets: LANG stays');
+    unlike($out, $keys, '--no-secrets: no keys');
+
+    $out = $run->('--no-env');
+    like($out, qr/\[-e\]\[DOZO_RUNNING_ON_DOCKER=1\]/, '--no-env: dozo runs');
+    unlike($out, qr/\[(?:LANG|TZ)\]/, '--no-env: no standard variables');
+    unlike($out, $keys, '--no-env: no keys');
+
+    $out = $run->('--no-env -E LANG');
+    like($out, qr/\[-e\]\[LANG\]/, '--no-env -E LANG: LANG');
+    unlike($out, qr/\[TZ\]/, '--no-env -E LANG: no TZ');
+
+    $out = $run->('--no-secrets -E OPENAI_API_KEY=x');
+    like($out, qr/\[OPENAI_API_KEY=x\]/, '-E after --no-secrets: added');
+    unlike($out, qr/\[ANTHROPIC_API_KEY\]/, '-E after --no-secrets: others stay out');
+
+    unlike($run->('-E OPENAI_API_KEY=v --no-secrets'), qr/OPENAI_API_KEY/, '-E before --no-secrets: removed');
+    unlike($run->('-E OPENAI_API_KEY --no-secrets'), qr/OPENAI_API_KEY/, '-E NAME before --no-secrets: removed');
+
+    $out = $run->('--secrets');
+    is(scalar(() = $out =~ /\[OPENAI_API_KEY\]/g), 1, '--secrets: no duplicate');
+    unlike($run->('--no-secrets --no-secrets'), $keys, '--no-secrets twice');
+    like($run->('--no-secrets --secrets'), qr/\[OPENAI_API_KEY\]/, '--secrets takes it back');
+
+    like(scalar `$dozo -H -I alpine --no-env true 2>/dev/null`, qr/\[-e\]\[HOME=\/work\]/, '--no-env -H: HOME stays');
+
+    my $home = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $home;
+    chdir $home or die;
+    open $fh, '>', "$home/.dozorc" or die;
+    print $fh "--no-secrets\n";
+    close $fh;
+    unlike($run->(''), $keys, '.dozorc --no-secrets');
+    like($run->('--secrets'), qr/\[OPENAI_API_KEY\]/, 'command line --secrets takes it back');
+
+    open $fh, '>', "$home/.dozorc" or die;
+    print $fh "--no-env\n";
+    close $fh;
+    mkdir "$home/sub" or die;
+    open $fh, '>', "$home/sub/.dozorc" or die;
+    print $fh "-E LANG\n";
+    close $fh;
+    chdir "$home/sub" or die;
+    $out = $run->('');
+    like($out, qr/\[-e\]\[LANG\]/, '.dozorc --no-env, then -E LANG in another: LANG');
+    unlike($out, qr/\[TZ\]/, '.dozorc --no-env, then -E LANG in another: no TZ');
+    chdir $empty_home or die;
+};
+
 subtest '-O and -P: an escaped space is not a separator' => sub {
     my $dir = tempdir(CLEANUP => 1);
     open my $fh, '>', "$dir/docker" or die;

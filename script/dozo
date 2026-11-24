@@ -359,12 +359,16 @@ with_image() {
 # Main
 ##############################################################################
 
-# Default environment variables to inherit
+# Default environment variables to inherit: the initial value of -E,
+# which --no-env drops
 DEFAULT_ENV=(
     LANG TZ
     HTTP_PROXY HTTPS_PROXY
     http_proxy https_proxy
     TERM_PROGRAM TERM_BGCOLOR COLORTERM
+)
+# Secrets, inherited as well unless --no-secrets
+SECRET_ENV=(
     DEEPL_AUTH_KEY
     OPENAI_API_KEY
     ANTHROPIC_API_KEY
@@ -440,6 +444,17 @@ image_set() {
     [[ $in_from == "command line" ]] && image_given=1
     return 0
 }
+# --secrets and --no-secrets: take the secrets out of -E so far, and put
+# them back if on, so that a later -E can add one after --no-secrets
+secrets_set() {
+    local e keep=()
+    for e in "${env[@]}"; do
+        [[ " ${SECRET_ENV[*]} " == *" ${e%%=*} "* ]] || keep+=("$e")
+    done
+    env=("${keep[@]}")
+    [[ $secrets ]] && env+=("${SECRET_ENV[@]}")
+    return 0
+}
 
 declare -A OPTS=(
     [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=2.0.0 [&DELIM]=,
@@ -453,7 +468,8 @@ declare -A OPTS=(
     [      image | I : # Docker image                    ]=
     [    default | D ! # use default image               ]=
     [  auto-pull | A   # pull newer image before running ]=
-    [        env | E @ # environment variable to inherit ]=
+    [        env | E @ # environment variable to inherit ]="(${DEFAULT_ENV[*]} ${SECRET_ENV[*]})"
+    [    secrets |     # pass API keys and other secrets ]=1
     [  mount-cwd | W   # mount current working directory ]=
     [ mount-home | H   # mount home directory            ]=
     [    unmount | U   # do not mount any directory      ]=
@@ -480,6 +496,7 @@ declare -F getoptlong >/dev/null || . getoptlong.sh -
 # Each .dozorc, then the command line, to tell where the image is from
 args=("$@") in_from= image_from= image_given= rc_stop=
 getoptlong init OPTS && getoptlong callback image image_set
+getoptlong callback secrets secrets_set
 rc_i=0
 for rc_k in "${!rc_files[@]}"; do
     in_from=${rc_files[rc_k]}
@@ -532,13 +549,15 @@ with_names=("${with[@]}")
 
 # Apply options
 [[ $mount_cwd ]] && mount_dir="$cwd"
-[[ $mount_home ]] && { mount_dir="$HOME"; DEFAULT_ENV+=(HOME=$workdir); }
+[[ $mount_home ]] && mount_dir="$HOME"
 [[ $mount_ro ]] && mount_mode=ro  # -R overrides --mount-mode
 
 # env_opts and tty_opts are used by both docker run and docker exec (-L)
 
-# Merge environment variables
-ENV=("${DEFAULT_ENV[@]}" "${env[@]}")
+# Environment variables: HOME of -H first, so that -E can change it
+ENV=()
+[[ $mount_home ]] && ENV+=(HOME=$workdir)
+ENV+=("${env[@]}")
 env_opts=()
 for e in "${ENV[@]}"; do env_opts+=(-e "$e"); done
 
