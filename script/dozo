@@ -1912,8 +1912,8 @@ and the secrets, unless B<--no-secrets> is given:
     DEEPL_AUTH_KEY OPENAI_API_KEY ANTHROPIC_API_KEY LLM_PERPLEXITY_KEY
 
 B<--no-env> drops both; then only the variables given with B<-E> after
-it are inherited.  C<HOME> of B<-H> and the L</Container Variables>
-are set in any case.
+it are inherited.  C<HOME> of B<-H>, C<DISPLAY> for X11 (see
+L</X11 Support>) and the L</Container Variables> are set in any case.
 
 =head2 Container Variables
 

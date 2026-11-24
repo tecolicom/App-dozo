@@ -810,8 +810,8 @@ and the secrets, unless **--no-secrets** is given:
     DEEPL_AUTH_KEY OPENAI_API_KEY ANTHROPIC_API_KEY LLM_PERPLEXITY_KEY
 
 **--no-env** drops both; then only the variables given with **-E** after
-it are inherited.  `HOME` of **-H** and the ["Container Variables"](#container-variables)
-are set in any case.
+it are inherited.  `HOME` of **-H**, `DISPLAY` for X11 (see
+["X11 Support"](#x11-support)) and the ["Container Variables"](#container-variables) are set in any case.
 
 ## Container Variables
 
