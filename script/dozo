@@ -442,7 +442,7 @@ image_set() {
 }
 
 declare -A OPTS=(
-    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=1.1.0 [&DELIM]=,
+    [&USAGE]="$USAGE" [&PERMUTE]= [&REQUIRE]=2.0.0 [&DELIM]=,
     [       help | h ! # show help                       ]=
     [    version |   ! # show version                    ]=
     [     bundle |   ! # print self-contained dozo       ]=
