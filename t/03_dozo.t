@@ -913,6 +913,7 @@ subtest 'default environment variables' => sub {
 
     unlike($run->('-E OPENAI_API_KEY=v --no-secrets'), qr/OPENAI_API_KEY/, '-E before --no-secrets: removed');
     unlike($run->('-E OPENAI_API_KEY --no-secrets'), qr/OPENAI_API_KEY/, '-E NAME before --no-secrets: removed');
+    unlike($run->(q(-E 'LANG, OPENAI_API_KEY=x ,FOO' --no-secrets)), qr/OPENAI_API_KEY/, '-E with spaces around commas before --no-secrets: removed');
 
     $out = $run->('--secrets');
     is(scalar(() = $out =~ /\[OPENAI_API_KEY\]/g), 1, '--secrets: no duplicate');

@@ -448,9 +448,11 @@ image_set() {
 # --secrets and --no-secrets: take the secrets out of -E so far, and put
 # them back if on, so that a later -E can add one after --no-secrets
 secrets_set() {
-    local e keep=()
+    local e name keep=()
     for e in "${env[@]}"; do
-        [[ " ${SECRET_ENV[*]} " == *" ${e%%=*} "* ]] || keep+=("$e")
+        # not trimmed yet (list_trim runs after the options)
+        read -r name <<< "${e%%=*}"
+        [[ " ${SECRET_ENV[*]} " == *" $name "* ]] || keep+=("$e")
     done
     env=("${keep[@]}")
     [[ $secrets ]] && env+=("${SECRET_ENV[@]}")
