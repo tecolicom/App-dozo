@@ -2,6 +2,16 @@ Revision history for Perl extension App-dozo
 
 {{$NEXT}}
 
+1.04 2026-11-28T14:15:15Z
+
+    - add --no-secrets not to pass the API keys (DEEPL_AUTH_KEY,
+      OPENAI_API_KEY, ANTHROPIC_API_KEY, LLM_PERPLEXITY_KEY) to the
+      container
+    - --no-env drops the default variables (LANG, TZ, ...) as well as
+      the values of -E so far (incompatible change)
+    - require Getopt::Long::Bash 2.0.0, which fixes a command injection
+      through the regex validation (GHSA-wjqv-m6g4-g5fr)
+
 1.03 2026-11-22T16:23:08Z
 
     - add --with (-F) to run an image with features added: pieces of

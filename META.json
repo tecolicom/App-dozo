@@ -64,7 +64,7 @@
          "web" : "https://github.com/tecolicom/App-dozo"
       }
    },
-   "version" : "1.03",
+   "version" : "1.04",
    "x_contributors" : [
       "Kazumasa Utashiro <kaz@utashiro.com>",
       "renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
